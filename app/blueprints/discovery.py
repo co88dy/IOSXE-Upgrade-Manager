@@ -13,12 +13,18 @@ import re
 
 discovery_bp = Blueprint('discovery', __name__)
 
-# Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
+# Load config helper
+def get_config():
+    try:
+        with open('config.json', 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return {}
 
-
-db = Database(config['database']['path'])
+# Initialize DB with initial config
+initial_config = get_config()
+db = Database(initial_config.get('database', {}).get('path', 'app/database/network_inventory.db'))
 
 # Load supported models patterns
 SUPPORTED_MODELS_CACHE = []
@@ -91,6 +97,9 @@ def discover_devices():
     
     if not ip_list:
         return jsonify({'error': 'No IP addresses provided'}), 400
+    
+    # Reload config to get latest credentials
+    config = get_config()
     
     results = []
     username = config['credentials']['ssh_username']
@@ -230,6 +239,8 @@ def toggle_netconf():
     if not ip_list:
         return jsonify({'error': 'No IP addresses provided'}), 400
     
+    # Reload config
+    config = get_config()
     username = config['credentials']['ssh_username']
     password = config['credentials']['ssh_password']
     enable_password = config['credentials'].get('enable_password', '')
