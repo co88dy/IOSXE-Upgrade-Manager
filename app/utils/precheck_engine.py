@@ -84,19 +84,72 @@ class PreCheckEngine:
                 'message': f'Error checking image presence: {str(e)}'
             })
     
+    def _parse_version(self, version_str: str) -> List[int]:
+        """
+        Parse version string into a list of integers for comparison
+        Handles strings like '17.03.02', '17.3.2', '16.12.5', '16.12.05a'
+        Removes non-numeric suffixes/prefixes
+        """
+        import re
+        try:
+            # Clean string: remove common prefixes/suffixes if present (though usually passed clean)
+            # Remove .SPA, .bin, etc
+            clean_ver = re.sub(r'(?i)\.(bin|spa|pkg)$', '', version_str)
+            
+            # Find the main version pattern (digits.digits.digits...)
+            # We look for the first sequence of numbers separated by dots
+            match = re.search(r'(\d+(?:\.\d+)+)', clean_ver)
+            if match:
+                version_part = match.group(1)
+                return [int(v) for v in version_part.split('.')]
+            
+            return []
+        except Exception:
+            return []
+
     def _check_version_difference(self, current_version: str, target_version: str):
-        """Check if target version is different from current version"""
-        if current_version == target_version:
-            self.results.append({
+        """Check if target version is different from current version and detect downgrades"""
+        
+        # Parse versions
+        curr_ver = self._parse_version(current_version)
+        tgt_ver = self._parse_version(target_version)
+        
+        # Fallback to string comparison if parsing fails
+        if not curr_ver or not tgt_ver:
+            if current_version == target_version:
+                self.results.append({
+                    'check_name': 'Version Comparison',
+                    'result': 'FAIL',
+                    'message': f'Target version ({target_version}) is the same as current version ({current_version})'
+                })
+            else:
+                self.results.append({
+                    'check_name': 'Version Comparison',
+                    'result': 'PASS',
+                    'message': f'Target version ({target_version}) differs from current version ({current_version})'
+                })
+            return
+
+        # Compare versions
+        if curr_ver == tgt_ver:
+             self.results.append({
                 'check_name': 'Version Comparison',
                 'result': 'FAIL',
                 'message': f'Target version ({target_version}) is the same as current version ({current_version})'
             })
+        elif tgt_ver < curr_ver:
+            # Downgrade detected
+            self.results.append({
+                'check_name': 'Version Comparison',
+                'result': 'WARN',
+                'message': f'Target version ({target_version}) is lower than current version ({current_version}). This will cause a downgrade. Please confirm downgrade compatibility.'
+            })
         else:
+            # Upgrade (tgt > curr)
             self.results.append({
                 'check_name': 'Version Comparison',
                 'result': 'PASS',
-                'message': f'Target version ({target_version}) differs from current version ({current_version})'
+                'message': f'Target version ({target_version}) is higher than current version ({current_version}). Upgrade path looks valid.'
             })
     
     def _check_boot_variables(self, device_role: str):
