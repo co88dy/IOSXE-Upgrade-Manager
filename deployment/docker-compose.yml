@@ -1,23 +1,22 @@
 version: '3.8'
 
 services:
-  ios-xe-manager:
-    build: .
+  app:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
     container_name: ios-xe-upgrade-manager
     ports:
       - "5000:5000"
       - "80:80"
-    volumes:
-      - ./app/database:/app/app/database
-      - ./app/repo:/app/app/repo
-      - ./config.json:/app/config.json
-    environment:
-      - FLASK_APP=main.py
-      - FLASK_ENV=production
     restart: unless-stopped
-    networks:
-      - ios-xe-network
+    # Persist data using named volumes instead of bind mounts
+    volumes:
+      - ios-xe-db:/app/app/database
+      - ios-xe-repo:/app/app/repo
+      - ios-xe-logs:/app/app/logs
 
-networks:
-  ios-xe-network:
-    driver: bridge
+volumes:
+  ios-xe-db:
+  ios-xe-repo:
+  ios-xe-logs:

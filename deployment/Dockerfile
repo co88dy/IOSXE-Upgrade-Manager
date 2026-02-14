@@ -1,5 +1,7 @@
+# Start from Python 3.11 slim image
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
 # Install system dependencies
@@ -15,14 +17,18 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy application code
 COPY . .
 
-# Create necessary directories
+# Create database and repo directories if they don't exist
 RUN mkdir -p app/database app/repo
+
+# Set environment variables
+ENV FLASK_APP=main.py
+ENV FLASK_ENV=production
 
 # Expose ports
 EXPOSE 5000 80
 
-# Run application
+# Run the application
 CMD ["python", "main.py"]

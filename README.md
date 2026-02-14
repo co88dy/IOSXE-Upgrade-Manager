@@ -24,27 +24,30 @@ python main.py
 ```
 
 ### Option 2: Docker (Recommended)
-Run the application as a reproducible container using Nix:
+You can run the application using `docker-compose` or build the image manually.
 
-1. **Build the Image**:
-   ```bash
-   nix build .#docker-image
-   ```
+#### Using Docker Compose (Easiest)
+This will build the image and start the container with persistent volumes for data.
 
-2. **Load Image**:
-   ```bash
-   docker load < result
-   ```
+```bash
+cd deployment
+docker-compose up -d --build
+```
 
-3. **Run Container**:
-   ```bash
-   docker run -d \
-     --name iosxe-manager \
-     -p 5000:5000 \
-     -p 80:80 \
-     -v "$(pwd):/app" \
-     ios-xe-upgrade-manager:latest
-   ```
+#### Manual Build
+```bash
+# 1. Build the image
+docker build -f deployment/Dockerfile -t ios-xe-upgrade-manager .
+
+# 2. Run container (mapped ports 5000 & 80)
+docker run -d \
+  --name iosxe-manager \
+  -p 5000:5000 \
+  -p 80:80 \
+  -v ios-xe-db:/app/app/database \
+  -v ios-xe-repo:/app/app/repo \
+  ios-xe-upgrade-manager
+```
 
 ## Configuration
 
