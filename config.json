@@ -10,18 +10,18 @@
     "path": "app/logs"
   },
   "credentials": {
-    "ssh_username": "cisco",
-    "ssh_password": "cisco",
-    "enable_password": "cisco",
+    "ssh_username": "admin",
+    "ssh_password": "password",
+    "enable_password": "password",
     "netconf_port": 830
   },
   "scheduler": {
-    "timezone": "America/Denver"
+    "timezone": "UTC"
   },
   "flask": {
     "host": "0.0.0.0",
     "port": 5000,
     "debug": true
   },
-  "http_server_ip": "100.64.0.1"
+  "http_server_ip": "192.168.1.100"
 }
