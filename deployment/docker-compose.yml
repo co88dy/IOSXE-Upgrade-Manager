@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  ios-xe-manager:
+    build: .
+    container_name: ios-xe-upgrade-manager
+    ports:
+      - "5000:5000"
+      - "80:80"
+    volumes:
+      - ./app/database:/app/app/database
+      - ./app/repo:/app/app/repo
+      - ./config.json:/app/config.json
+    environment:
+      - FLASK_APP=main.py
+      - FLASK_ENV=production
+    restart: unless-stopped
+    networks:
+      - ios-xe-network
+
+networks:
+  ios-xe-network:
+    driver: bridge

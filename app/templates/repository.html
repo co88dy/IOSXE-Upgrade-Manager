@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Repository - IOS-XE Upgrade Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1, 1000) | random }}"></script>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <button class="hamburger-btn" onclick="toggleMenu()" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <h1>📦 Image Repository</h1>
+        <p>Manage IOS-XE Software Images</p>
+    </div>
+
+    <!-- Navigation Menu -->
+    <nav id="navMenu" class="nav-menu">
+        <div class="nav-header">
+            <h2>Navigation</h2>
+            <button class="close-btn" onclick="toggleMenu()">×</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="nav-link" onclick="navigateTo(event, 'dashboard')">📊 Dashboard</a></li>
+            <li><a href="/repo" class="nav-link active" onclick="navigateTo(event, 'repository')">📦 Image
+                    Repository</a></li>
+            <li><a href="/models" class="nav-link" onclick="navigateTo(event, 'models')">📚 Supported Models</a></li>
+            <li class="nav-section-title"
+                style="padding: 1rem 1.5rem 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">
+                Reports</li>
+            <li><a href="/reports/prechecks" class="nav-link" onclick="navigateTo(event, 'reports')">📋 Prechecks
+                    Report</a></li>
+        </ul>
+    </nav>
+    <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
+
+    <div class="container">
+        <!-- HTTP Server Configuration -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <h2 class="card-title">⚙️ Repository Configuration</h2>
+                <button class="btn btn-primary" onclick="saveRepoConfig()">
+                    <span>💾</span> Save Configuration
+                </button>
+            </div>
+
+            <div class="input-group">
+                <label for="httpServerIP">HTTP Server IP Address</label>
+                <input type="text" id="httpServerIP" placeholder="e.g., 192.168.1.100" />
+                <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                    This IP will be used by devices to download images via HTTP (e.g., copy http://&lt;IP&gt;/image.bin
+                    flash:)
+                    <br>For Docker deployments, use the host machine's IP address, NOT localhost/127.0.0.1
+                </small>
+            </div>
+        </div>
+
+        <!-- Image Upload Section -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <h2 class="card-title">📤 Upload Image</h2>
+                <button class="btn btn-success" onclick="refreshRepository()">
+                    <span>🔄</span> Refresh List
+                </button>
+            </div>
+
+            <div class="file-upload" onclick="document.getElementById('fileInput').click()">
+                <input type="file" id="fileInput" accept=".bin" onchange="handleFileSelect()">
+                <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">
+                    📁 Click to select IOS-XE image (.bin)
+                </p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">
+                    No size limit
+                </p>
+                <div id="selectedFileName" style="margin-top: 0.75rem; display: none;">
+                    <p style="color: var(--accent-success); font-size: 0.9rem; font-weight: 500;">
+                        ✅ <span id="fileName"></span>
+                    </p>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                        Size: <span id="fileSize"></span> MB
+                    </p>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="md5Input">MD5 Checksum <span style="color: var(--accent-error);">*Required</span></label>
+                <input type="text" id="md5Input" placeholder="Enter MD5 hash (32 characters)" required>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+                    MD5 hash is required to verify image integrity. You can obtain this from Cisco's download page.
+                </small>
+            </div>
+
+            <button class="btn btn-primary" onclick="uploadImage()" style="width: 100%; margin-top: 1rem;">
+                <span>⬆️</span> Upload Image
+            </button>
+        </div>
+
+        <!-- Repository List -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <h2 class="card-title">📚 Available Images</h2>
+            </div>
+
+            <div id="repositoryList" style="margin-top: 1rem;">
+                <p style="color: var(--text-muted); text-align: center;">Loading images...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner-large"></div>
+            <p id="loadingMessage">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notificationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="notificationIcon" class="modal-icon">ℹ️</span>
+                <h3 id="notificationTitle" class="modal-title">Notification</h3>
+            </div>
+            <div class="modal-body">
+                <div id="notificationMessage"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="closeNotificationModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-icon">⚠️</span>
+                <h3 class="modal-title">Confirm Action</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeConfirmModal(false)">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="closeConfirmModal(true)">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/repository.js') }}"></script>
+</body>
+
+</html>

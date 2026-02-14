@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+venv/
+.DS_Store
+*.db
+*.log
+app/repo/*.bin
+discovery_response.txt
+debug_output_*.txt
+result

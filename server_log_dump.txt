@@ -1,0 +1,57 @@
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/pkey.py:100: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "cipher": algorithms.TripleDES,
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/transport.py:259: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "class": algorithms.TripleDES,
+Scheduler thread started...
+
+    ╔═══════════════════════════════════════════════════════════╗
+    ║       IOS-XE Upgrade Manager - Starting Server           ║
+    ╠═══════════════════════════════════════════════════════════╣
+    ║  URL: http://0.0.0.0:5004                          ║
+    ║  Database: app/database/network_inventory.db                    ║
+    ║  Repository: app/repo                           ║
+    ╚═══════════════════════════════════════════════════════════╝
+    
+ * Serving Flask app 'main'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5004
+ * Running on http://192.168.128.79:5004
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/pkey.py:100: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "cipher": algorithms.TripleDES,
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/transport.py:259: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "class": algorithms.TripleDES,
+Scheduler thread started...
+
+    ╔═══════════════════════════════════════════════════════════╗
+    ║       IOS-XE Upgrade Manager - Starting Server           ║
+    ╠═══════════════════════════════════════════════════════════╣
+    ║  URL: http://0.0.0.0:5004                          ║
+    ║  Database: app/database/network_inventory.db                    ║
+    ║  Repository: app/repo                           ║
+    ╚═══════════════════════════════════════════════════════════╝
+    
+ * Debugger is active!
+ * Debugger PIN: 116-431-915
+127.0.0.1 - - [13/Feb/2026 17:52:52] "[31m[1mPOST /api/discover HTTP/1.1[0m" 400 -
+ * Detected change in '/Users/codyharmon/Documents/Code/IOSXE Upgrade/debug_discovery.py', reloading
+ * Restarting with stat
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/pkey.py:100: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "cipher": algorithms.TripleDES,
+/Users/codyharmon/Documents/Code/IOSXE Upgrade/venv/lib/python3.13/site-packages/paramiko/transport.py:259: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "class": algorithms.TripleDES,
+Scheduler thread started...
+
+    ╔═══════════════════════════════════════════════════════════╗
+    ║       IOS-XE Upgrade Manager - Starting Server           ║
+    ╠═══════════════════════════════════════════════════════════╣
+    ║  URL: http://0.0.0.0:5004                          ║
+    ║  Database: app/database/network_inventory.db                    ║
+    ║  Repository: app/repo                           ║
+    ╚═══════════════════════════════════════════════════════════╝
+    
+ * Debugger is active!
+ * Debugger PIN: 116-431-915

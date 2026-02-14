@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IOS-XE Upgrade Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <button class="hamburger-btn" onclick="toggleMenu()" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <h1>🚀 IOS-XE Upgrade Manager</h1>
+        <p>Model-Driven Cisco IOS-XE Software Management Platform</p>
+        <div style="position: absolute; top: 1rem; right: 1rem; text-align: right; color: white;">
+            <div id="serverTime" style="font-weight: bold; font-family: monospace; font-size: 1.2rem;">--:--:--</div>
+            <div id="serverTimezoneDisplay" style="font-size: 0.8rem; opacity: 0.8;">UTC</div>
+        </div>
+    </div>
+
+    <!-- Navigation Menu -->
+    <nav id="navMenu" class="nav-menu">
+        <div class="nav-header">
+            <h2>Navigation</h2>
+            <button class="close-btn" onclick="toggleMenu()">×</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="nav-link active" onclick="navigateTo(event, 'dashboard')">📊 Dashboard</a></li>
+            <li><a href="/repo" class="nav-link" onclick="navigateTo(event, 'repository')">📦 Image Repository</a></li>
+            <li><a href="/models" class="nav-link" onclick="navigateTo(event, 'models')">📚 Supported Models</a></li>
+            <li class="nav-section-title"
+                style="padding: 1rem 1.5rem 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">
+                Reports</li>
+            <li><a href="/reports/prechecks" class="nav-link" onclick="navigateTo(event, 'reports')">📋 Prechecks
+                    Report</a></li>
+        </ul>
+    </nav>
+    <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
+
+    <div class="container">
+        <!-- Settings Section -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <h2 class="card-title">⚙️ Settings</h2>
+                <button class="btn btn-primary" onclick="saveCredentials()">
+                    <span>💾</span> Save
+                </button>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="input-group">
+                    <label for="username">Device Username</label>
+                    <input type="text" id="username" placeholder="admin" />
+                </div>
+                <div class="input-group">
+                    <label for="password">Device Password</label>
+                    <input type="password" id="password" placeholder="Enter password" />
+                </div>
+            </div>
+            <div class="grid grid-2">
+                <div class="input-group">
+                    <label for="enablePassword">Enable Password (Optional)</label>
+                    <input type="password" id="enablePassword" placeholder="Leave blank if not required" />
+                </div>
+                <div class="input-group">
+                    <label for="netconfPort">NETCONF Port</label>
+                    <input type="number" id="netconfPort" value="830" style="width: 200px;" />
+                </div>
+                <div class="input-group">
+                    <label for="globalTimezone">Global Timezone</label>
+                    <select id="globalTimezone"
+                        style="background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 4px;">
+                        <option value="UTC">UTC</option>
+                        <option value="America/Chicago">Central Time (US)</option>
+                        <option value="America/New_York">Eastern Time (US)</option>
+                        <option value="America/Los_Angeles">Pacific Time (US)</option>
+                        <option value="America/Denver">Mountain Time (US)</option>
+                        <option value="Europe/London">London (GMT)</option>
+                        <!-- Add more as needed -->
+                    </select>
+                </div>
+            </div>
+            <div id="settingsStatus" style="margin-top: 10px; font-weight: 500;"></div>
+        </div>
+
+        <!-- Device Discovery Section -->
+        <div class="card fade-in" style="z-index: 10; position: relative;">
+            <div class="card-header">
+                <h2 class="card-title">📡 Device Discovery</h2>
+                <div>
+                    <button class="btn btn-primary" onclick="discoverDevices()">
+                        <span>🔍</span> Discover Devices
+                    </button>
+                    <button type="button" class="btn btn-danger" onclick="clearInventory(event)">
+                        <span>🗑️</span> Clear All
+                    </button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="ipList">IP Addresses (comma-separated)</label>
+                <textarea id="ipList" rows="3" placeholder="10.10.20.1, 10.10.20.2, 10.10.20.3"></textarea>
+            </div>
+
+            <!-- Actions Dropdown -->
+            <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
+                <div class="dropdown">
+                    <button class="btn btn-primary" id="actionsDropdownBtn" onclick="toggleActionsDropdown()" disabled>
+                        <span>⚙️</span> Actions ▼
+                    </button>
+                    <div class="dropdown-menu" id="actionsDropdownMenu">
+                        <a href="#" onclick="toggleNetconfBulk(); return false;">Toggle NETCONF</a>
+                        <a href="#" onclick="rediscoverSelected(); return false;">Re-discover</a>
+                        <a href="#" onclick="installRemoveInactive(); return false;">Install Remove Inactive</a>
+                        <a href="#" onclick="runPrechecks(); return false;">Run Prechecks</a>
+                        <a href="#" onclick="copyImageToSelected(); return false;">Copy & Verify Image</a>
+                        <a href="#" onclick="verifyImageSelected(); return false;">Verify Image Only</a>
+                        <a href="#" onclick="stageSelectedDevices(); return false;">Stage for Upgrade</a>
+                        <hr style="margin: 0.5rem 0; border: 0; border-top: 1px solid var(--border-color);">
+                        <a href="#" onclick="deleteSelected(); return false;" style="color: var(--accent-error);">Delete
+                            Devices</a>
+                    </div>
+                </div>
+                <span id="selectedCount" style="color: var(--text-secondary); font-size: 0.9rem;">0 devices
+                    selected</span>
+            </div>
+
+            <div class="table-container">
+                <table id="inventoryTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+                            </th>
+                            <th>IP Address</th>
+                            <th>Hostname</th>
+                            <th>Serial Number</th>
+                            <th>Model</th>
+                            <th>Current Version</th>
+                            <th>Target Image</th>
+                            <th>Image Status</th>
+                            <th>Status</th>
+                            <th>NETCONF</th>
+                            <th>Boot Variable</th>
+                            <th>Free Space (MB)</th>
+                            <th>Precheck Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryBody">
+                        <tr>
+                            <td colspan="12" style="text-align: center; color: var(--text-muted);">
+                                No devices discovered yet. Enter IP addresses and click "Discover Devices".
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Upgrade Scheduler Section (Full Width) -->
+
+        <!-- Upgrade Scheduler Section -->
+        <div id="upgradeScheduler" class="card fade-in"
+            style="display: none; margin-top: 2rem; border-left: 4px solid var(--accent-primary); position: relative; z-index: 5;">
+            <div class="card-header">
+                <h2 class="card-title">📅 Upgrade Scheduler</h2>
+            </div>
+            <div class="card-body">
+                <div style="margin-bottom: 1rem; display: flex; justify-content: flex-start;">
+                    <div class="dropdown">
+                        <button class="btn btn-primary" onclick="toggleSchedulerDropdown()">
+                            <span>⚙️</span> Scheduler Actions ▼
+                        </button>
+                        <div class="dropdown-menu" id="schedulerDropdownMenu" style="margin-top: 0.5rem;">
+                            <a href="#" onclick="processImmediateUpgrades(); return false;">⚡ Upgrade Selected Now</a>
+                            <a href="#" onclick="processStagedUpgrades(); return false;">📅 Confirm & Schedule
+                                Selected</a>
+                            <hr style="margin: 0.5rem 0; border: 0; border-top: 1px solid var(--border-color);">
+                            <a href="#" onclick="removeFromStageSelected(); return false;"
+                                style="color: var(--accent-error);">Remove from Staged</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table id="stagedDevicesTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;">
+                                    <input type="checkbox" id="selectAllStaged" onchange="toggleSelectAllStaged()">
+                                </th>
+                                <th>Hostname</th>
+                                <th>IP Address</th>
+                                <th>Target Image</th>
+                                <th>Precheck Status</th>
+                                <th>Schedule Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stagedDevicesBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Jobs & Logs Section -->
+        <div class="card fade-in">
+            <div class="card-header">
+                <h2 class="card-title">📊 Jobs</h2>
+            </div>
+
+            <div class="table-container" style="margin-bottom: 1.5rem; max-height: 500px; overflow-y: auto;">
+                <table id="jobsTable">
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Job Type</th>
+                            <th>Hostname</th>
+                            <th>Target IP</th>
+                            <th>Target Version</th>
+                            <th>Status</th>
+                            <th>Created At</th>
+                            <th>Completed At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobsBody">
+                        <tr>
+                            <td colspan="8" style="text-align: center; color: var(--text-muted);">
+                                No jobs scheduled yet.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Scheduled Jobs Table (Hidden by default) -->
+            <div id="scheduledJobsContainer"
+                style="display: none; margin-bottom: 2rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                <h3 style="margin-bottom: 1rem; color: var(--accent-primary);">⏳ Scheduled Jobs</h3>
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Job ID</th>
+                                <th>Type</th>
+                                <th>Hostname</th>
+                                <th>Target IP</th>
+                                <th>Target Version</th>
+                                <th>Status</th>
+                                <th>Scheduled For</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scheduledJobsBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 1rem; color: var(--text-secondary);">Event Stream</h3>
+            <div class="log-viewer" id="logViewer">
+                <div style="color: #00ff00;">Waiting for events...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner-large"></div>
+            <p id="loadingMessage">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notificationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span id="notificationIcon" class="modal-icon">ℹ️</span>
+                <h3 id="notificationTitle" class="modal-title">Notification</h3>
+            </div>
+            <div class="modal-body">
+                <div id="notificationMessage"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="closeNotificationModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-icon">⚠️</span>
+                <h3 class="modal-title">Confirm Action</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">Are you sure you want to proceed?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeConfirmModal(false)">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="closeConfirmModal(true)">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div id="rescheduleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-icon">📅</span>
+                <h3 class="modal-title">Reschedule Job</h3>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label>New Schedule Time</label>
+                    <input type="datetime-local" id="rescheduleTimeInput"
+                        style="width: 100%; padding: 0.5rem; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                    <input type="hidden" id="rescheduleJobId">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeRescheduleModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveReschedule()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Viewer Modal -->
+    <div id="logModal" class="modal">
+        <div class="modal-content log-modal-content">
+            <div class="modal-header">
+                <span class="modal-icon">📜</span>
+                <h3 class="modal-title" id="logModalTitle">Job Logs</h3>
+                <div style="margin-left: auto;">
+                    <span id="logModalStatus" class="badge">RUNNING</span>
+                </div>
+            </div>
+            <div class="modal-body log-modal-body">
+                <div id="logContent" class="log-viewer-container">Loading logs...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeLogModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Precheck Details Modal -->
+    <div id="precheckModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closePrecheckModal()">&times;</span>
+            <div class="modal-header">
+                <h3 id="precheckModalTitle">Pre-Check Details</h3>
+            </div>
+            <div class="modal-body" id="precheckModalBody">
+                <!-- Content populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Job Log Viewer Modal (Hidden, using console instead) -->
+    <!-- ... -->
+
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1, 1000) | random }}"></script>
+</body>
+
+</html>

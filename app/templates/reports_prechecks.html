@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prechecks Report - IOS-XE Upgrade Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1, 1000) | random }}"></script>
+    <script src="{{ url_for('static', filename='js/reports.js') }}?v={{ range(1, 1000) | random }}"></script>
+    <style>
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .device-card {
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .device-info {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .device-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .results-table th,
+        .results-table td {
+            padding: 0.75rem 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .results-table th {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            background: var(--bg-hover);
+        }
+
+        .result-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-pass {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+
+        .status-fail {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+
+        .status-warn {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
+
+        .status-error {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <button class="hamburger-btn" onclick="toggleMenu()" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <h1>📋 Prechecks Report</h1>
+        <p>Comprehensive validation summary for all devices</p>
+    </div>
+
+    <!-- Navigation Menu -->
+    <nav id="navMenu" class="nav-menu">
+        <div class="nav-header">
+            <h2>Navigation</h2>
+            <button class="close-btn" onclick="toggleMenu()">×</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="nav-link">📊 Dashboard</a></li>
+            <li><a href="/repo" class="nav-link">📦 Image Repository</a></li>
+            <li><a href="/models" class="nav-link">📚 Supported Models</a></li>
+            <li class="nav-section-title"
+                style="padding: 1rem 1.5rem 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">
+                Reports</li>
+            <li><a href="/reports/prechecks" class="nav-link active">📋 Prechecks Report</a></li>
+        </ul>
+    </nav>
+    <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
+
+    <div class="container fade-in">
+        <div class="report-header">
+            <div>
+                <h2 style="margin: 0;">Device Validation Summary</h2>
+                <p id="reportGenerationTime" class="text-muted" style="margin-top: 0.5rem;"></p>
+            </div>
+            <button class="btn btn-primary" onclick="downloadPrechecksReport()">
+                <span>📄</span> Download as PDF
+            </button>
+        </div>
+
+        <div id="reportContent">
+            <div style="text-align: center; padding: 3rem;">
+                <div class="spinner"></div>
+                <p style="margin-top: 1rem; color: var(--text-muted);">Fetching report data...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner-large"></div>
+            <p id="loadingMessage">Processing...</p>
+        </div>
+    </div>
+
+    <!-- Notification Modal -->
+    <div id="notificationModal" class="modal">
+        <div class="modal-content">
+            <div id="notificationIcon" style="font-size: 3rem; margin-bottom: 1rem;">ℹ️</div>
+            <h2 id="notificationTitle">Notification</h2>
+            <div id="notificationMessage" style="margin: 1.5rem 0; line-height: 1.6;"></div>
+            <button class="btn btn-primary" onclick="closeNotificationModal()">OK</button>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">❓</div>
+            <h2>Confirm Action</h2>
+            <p id="confirmMessage" style="margin: 1.5rem 0;"></p>
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <button class="btn btn-secondary" onclick="closeConfirmModal(false)">Cancel</button>
+                <button class="btn btn-primary" onclick="closeConfirmModal(true)">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/reports.js') }}?v={{ range(1, 1000) | random }}"></script>
+</body>
+
+</html>

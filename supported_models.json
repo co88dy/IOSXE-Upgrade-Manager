@@ -1,0 +1,124 @@
+{
+    "models": [
+        {
+            "family": "Catalyst 9000 Series",
+            "series": [
+                {
+                    "model": "Catalyst 9200/9200L",
+                    "image_format": "cat9k_lite_iosxe.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286320070/type/282046477/release",
+                    "patterns": [
+                        "^C9200L?-.*",
+                        "^C9200CX-.*"
+                    ]
+                },
+                {
+                    "model": "Catalyst 9300/9300L/9300X/9500",
+                    "image_format": "cat9k_iosxe.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286313806",
+                    "patterns": [
+                        "^C9300[LX]?-.*",
+                        "^C9500-.*"
+                    ]
+                },
+                {
+                    "model": "Catalyst 9350",
+                    "image_format": "cisco9k_iosxe.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286335218/type/282046477/",
+                    "patterns": [
+                        "^C9350-.*"
+                    ]
+                }
+            ]
+        },
+        {
+            "family": "Catalyst 8000 Edge Platforms",
+            "series": [
+                {
+                    "model": "Catalyst 8200 / 8200L / 8300",
+                    "image_format": "c8000be-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286324472/type/282046477/",
+                    "patterns": [
+                        "^C8200.*",
+                        "^C8300.*"
+                    ]
+                }
+            ]
+        },
+        {
+            "family": "Catalyst 3000 Series",
+            "series": [
+                {
+                    "model": "Catalyst 3650 / 3850",
+                    "image_format": "cat3k_caa-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/284439900",
+                    "patterns": [
+                        "^WS-C3650-.*",
+                        "^WS-C3850-.*"
+                    ]
+                }
+            ]
+        },
+        {
+            "family": "ISR 4000 Series",
+            "series": [
+                {
+                    "model": "ISR 4221",
+                    "image_format": "isr4200-universalk9_ias.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286281708",
+                    "patterns": [
+                        "^ISR4221.*"
+                    ]
+                },
+                {
+                    "model": "ISR 4321 / ISR 4331 / ISR 4351",
+                    "image_format": "isr4300-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286281708",
+                    "patterns": [
+                        "^ISR4321.*",
+                        "^ISR4331.*",
+                        "^ISR4351.*"
+                    ]
+                },
+                {
+                    "model": "ISR 4431 / ISR 4451-X",
+                    "image_format": "isr4400-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286281708",
+                    "patterns": [
+                        "^ISR4431.*",
+                        "^ISR4451-X.*"
+                    ]
+                },
+                {
+                    "model": "ISR 4461",
+                    "image_format": "isr4400v2-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286281708",
+                    "patterns": [
+                        "^ISR4461.*"
+                    ]
+                }
+            ]
+        },
+        {
+            "family": "Virtual Routers",
+            "series": [
+                {
+                    "model": "Cloud Services Router 1000v (CSR1000v)",
+                    "image_format": "csr1000v-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/284364978/type/282046477/",
+                    "patterns": [
+                        "^CSR1000V.*"
+                    ]
+                },
+                {
+                    "model": "Catalyst 8000v Edge Software (C8000v)",
+                    "image_format": "c8000v-universalk9.<release>.SPA.bin",
+                    "link": "https://software.cisco.com/download/home/286327102/type/282046477/",
+                    "patterns": [
+                        "^C8000V.*"
+                    ]
+                }
+            ]
+        }
+    ]
+}

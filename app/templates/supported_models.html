@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supported Models - IOS-XE Upgrade Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .model-family-card {
+            margin-bottom: 2rem;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .model-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+
+        .model-table th {
+            text-align: left;
+            padding: 1rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .model-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        .model-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .code-snippet {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            background-color: var(--bg-secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+            color: var(--accent-primary);
+        }
+
+        .download-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background-color: rgba(var(--accent-primary-rgb), 0.1);
+            color: var(--accent-primary);
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+
+        .download-link:hover {
+            background-color: var(--accent-primary);
+            color: white;
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <button class="hamburger-btn" onclick="toggleMenu()" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <h1>📚 Supported Models</h1>
+        <p>Reference Guide for IOS-XE Software Images</p>
+        <div style="position: absolute; top: 1rem; right: 1rem; text-align: right; color: white;">
+            <div id="serverTime" style="font-weight: bold; font-family: monospace; font-size: 1.2rem;">--:--:--</div>
+            <div id="serverTimezoneDisplay" style="font-size: 0.8rem; opacity: 0.8;">UTC</div>
+        </div>
+    </div>
+
+    <!-- Navigation Menu (Duplicated for now, should be a component) -->
+    <nav id="navMenu" class="nav-menu">
+        <div class="nav-header">
+            <h2>Navigation</h2>
+            <button class="close-btn" onclick="toggleMenu()">×</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="nav-link" onclick="navigateTo(event, 'dashboard')">📊 Dashboard</a></li>
+            <li><a href="/repo" class="nav-link" onclick="navigateTo(event, 'repository')">📦 Image Repository</a></li>
+            <li><a href="/models" class="nav-link active">📚 Supported Models</a></li>
+            <li class="nav-section-title"
+                style="padding: 1rem 1.5rem 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">
+                Reports</li>
+            <li><a href="/reports/prechecks" class="nav-link" onclick="navigateTo(event, 'reports')">📋 Prechecks
+                    Report</a></li>
+        </ul>
+    </nav>
+    <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
+
+    <div class="container" id="modelsContainer">
+        <!-- Content injected by JS -->
+        <div style="text-align: center; padding: 4rem;">
+            <div class="spinner"></div>
+            <p style="margin-top: 1rem; color: var(--text-muted);">Loading supported models...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1, 10000) | random }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', loadModels);
+
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/models');
+                const data = await response.json();
+                const container = document.getElementById('modelsContainer');
+
+                if (data.models && data.models.length > 0) {
+                    container.innerHTML = '';
+
+                    data.models.forEach(family => {
+                        const card = document.createElement('div');
+                        card.className = 'card model-family-card';
+
+                        let rows = '';
+                        family.series.forEach(item => {
+                            // Escape HTML characters in image_format to ensure <release> is visible
+                            const safeFormat = item.image_format
+                                .replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;")
+                                .replace(/"/g, "&quot;")
+                                .replace(/'/g, "&#039;");
+
+                            rows += `
+                                <tr>
+                                    <td style="font-weight: 500;">${item.model}</td>
+                                    <td><code class="code-snippet">${safeFormat}</code></td>
+                                    <td style="text-align: right;">
+                                        <a href="${item.link}" target="_blank" class="download-link">
+                                            <span>💾</span> Download
+                                        </a>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+
+                        card.innerHTML = `
+                            <div class="card-header">
+                                <h2 class="card-title">🔹 ${family.family}</h2>
+                            </div>
+                            <table class="model-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 25%">Model Series</th>
+                                        <th style="width: 55%">Recommended Image Format</th>
+                                        <th style="width: 20%; text-align: right;">Cisco.com Link</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        `;
+                        container.appendChild(card);
+                    });
+                } else {
+                    container.innerHTML = '<div class="card" style="padding: 2rem; text-align: center;">No supported models found in config.</div>';
+                }
+            } catch (error) {
+                console.error('Error loading models:', error);
+                document.getElementById('modelsContainer').innerHTML =
+                    '<div class="card" style="padding: 2rem; text-align: center; color: var(--accent-error);">Error loading supported models data.</div>';
+            }
+        }
+    </script>
+</body>
+
+</html>

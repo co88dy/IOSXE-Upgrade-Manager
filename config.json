@@ -1,0 +1,27 @@
+{
+  "database": {
+    "path": "app/database/network_inventory.db"
+  },
+  "repository": {
+    "path": "app/repo",
+    "http_port": 80
+  },
+  "logs": {
+    "path": "app/logs"
+  },
+  "credentials": {
+    "ssh_username": "cisco",
+    "ssh_password": "cisco",
+    "enable_password": "cisco",
+    "netconf_port": 830
+  },
+  "scheduler": {
+    "timezone": "America/Denver"
+  },
+  "flask": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": true
+  },
+  "http_server_ip": "100.64.0.1"
+}
