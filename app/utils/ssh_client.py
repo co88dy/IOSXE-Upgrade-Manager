@@ -28,7 +28,10 @@ class SSHClient:
                 username=self.username,
                 password=self.password,
                 secret=self.enable_password if self.enable_password else self.password,
-                timeout=30
+                timeout=30,
+                # Enable legacy algorithms for older devices
+                disabled_algorithms=None,
+                allow_auto_change=True
             )
             
             # Enter enable mode if enable password is provided

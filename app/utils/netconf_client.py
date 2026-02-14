@@ -7,6 +7,39 @@ from ncclient import manager
 from ncclient.operations import RPCError
 import xmltodict
 from typing import Dict, Any, Optional, List
+import paramiko
+
+# Global fix for legacy devices (TripleDES/SHA1 support)
+paramiko.Transport._preferred_kex = (
+    'diffie-hellman-group14-sha1',
+    'diffie-hellman-group-exchange-sha1',
+    'diffie-hellman-group1-sha1',
+    'diffie-hellman-group-exchange-sha256',
+    'ecdh-sha2-nistp256',
+    'ecdh-sha2-nistp384',
+    'ecdh-sha2-nistp521',
+    'curve25519-sha256',
+    'curve25519-sha256@libssh.org'
+)
+paramiko.Transport._preferred_ciphers = (
+    'aes128-ctr',
+    'aes192-ctr',
+    'aes256-ctr',
+    'aes128-cbc',
+    'aes192-cbc',
+    'aes256-cbc',
+    '3des-cbc'
+)
+paramiko.Transport._preferred_keys = (
+    'ssh-rsa',
+    'rsa-sha2-256',
+    'rsa-sha2-512',
+    'ssh-dss',
+    'ecdsa-sha2-nistp256',
+    'ecdsa-sha2-nistp384',
+    'ecdsa-sha2-nistp521',
+    'ssh-ed25519'
+)
 
 
 class NetconfClient:
