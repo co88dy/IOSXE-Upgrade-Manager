@@ -112,8 +112,9 @@ def execute_copy_job(job_id, ip_address, image_filename):
         enable_password = local_config['credentials'].get('enable_password', '')
         
         server_ip = local_config.get('http_server_ip', '127.0.0.1')
-        # Handle case where flask port might be missing or different in config
-        server_port = local_config.get('flask', {}).get('port', 5000)
+        # Use repository port if configured (e.g. 80 for Docker/Nginx), otherwise fallback to Flask port
+        repo_port = local_config.get('repository', {}).get('http_port')
+        server_port = repo_port if repo_port else local_config.get('flask', {}).get('port', 5000)
 
         # Connect
         job_manager.append_log(job_id, "Connecting via SSH...")
