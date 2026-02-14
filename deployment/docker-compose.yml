@@ -2,13 +2,12 @@ version: '3.8'
 
 services:
   app:
-    build:
-      context: ..
-      dockerfile: deployment/Dockerfile
-    container_name: ios-xe-upgrade-manager
+    # Use the pre-built image from Docker Hub instead of building locally
+    image: co88dy/iosxe-upgrade-manager:latest
+    container_name: IOSXE-Upgrade-Manager
     ports:
       - "5000:5000"
-      - "80:80"
+      - "80:5000"
     restart: unless-stopped
     # Persist data using named volumes instead of bind mounts
     volumes:
