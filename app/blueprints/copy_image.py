@@ -127,7 +127,13 @@ def execute_copy_job(job_id, ip_address, image_filename):
 
         # Prepare Copy
         destination_fs = "flash:" # Default, could be improved with discovery data
-        http_url = f"http://{server_ip}:{server_port}/repo/{image_filename}"
+        
+        # Handle default HTTP port 80 (Docker/standard web server)
+        # IOS-XE devices often prefer 'http://ip/file' over 'http://ip:80/file'
+        if str(server_port) == '80':
+            http_url = f"http://{server_ip}/repo/{image_filename}"
+        else:
+            http_url = f"http://{server_ip}:{server_port}/repo/{image_filename}"
         
         job_manager.append_log(job_id, f"Checking if file {image_filename} already exists...")
         if ssh.check_file_exists(destination_fs, image_filename):
