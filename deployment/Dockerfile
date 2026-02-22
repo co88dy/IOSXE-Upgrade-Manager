@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libffi-dev \
     iputils-ping \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements

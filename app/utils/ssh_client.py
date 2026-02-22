@@ -29,8 +29,9 @@ class SSHClient:
                 password=self.password,
                 secret=self.enable_password if self.enable_password else self.password,
                 timeout=30,
-                # Enable legacy algorithms for older devices
-                disabled_algorithms=None,
+                # Force fallback to ssh-rsa by disabling newer rsa-sha2 variants
+                # (Fixes a known bug between Paramiko 2.9+ and older Cisco IOS cryptography)
+                disabled_algorithms=dict(pubkeys=["rsa-sha2-512", "rsa-sha2-256"]),
                 allow_auto_change=True
             )
             
