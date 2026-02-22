@@ -28,12 +28,15 @@ netsh interface portproxy add v4tov4 listenport=5000 listenaddress=0.0.0.0 conne
 
 Write-Host "Bridges Updated!"
 Write-Host "  -> Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
-Write-Host "`n[3/3] Pulling and running Docker image inside WSL..."
-Write-Host "Downloading latest image from Docker Hub (this may take a minute or two)..." -ForegroundColor Cyan
-# Execute docker commands inside WSL directly as root to stream output. (Forcing AMD64 to prevent exec format errors)
-wsl -u root docker pull --platform linux/amd64 co88dy/iosxe-upgrade-manager:latest
+Write-Host "`n[3/3] Building and running Docker image locally inside WSL..."
+Write-Host "Building image natively to ensure 100% architecture compatibility (this may take a few minutes)..." -ForegroundColor Cyan
 
-Write-Host "Cleaning up old containers..." -ForegroundColor Cyan
+# Execute docker commands inside WSL directly as root to stream output.
+# We build locally to prevent cross-compilation errors from Apple Silicon manifest bugs.
+$linux_path = wsl -e bash -c "wslpath -u '$(Get-Location)'"
+wsl -u root bash -c "cd '$linux_path' && docker build -t co88dy/iosxe-upgrade-manager:latest -f deployment/Dockerfile ."
+
+Write-Host "`nCleaning up old containers..." -ForegroundColor Cyan
 wsl -u root bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
 
 Write-Host "Starting new container..." -ForegroundColor Cyan
