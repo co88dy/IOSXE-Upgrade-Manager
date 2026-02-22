@@ -31,8 +31,8 @@ Write-Host "  -> Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
 Write-Host "`n[3/3] Building and running Docker image inside WSL natively..."
 Write-Host "Compiling the AMD64 image locally on your Jumpbox to prevent Mac cross-compilation bugs..." -ForegroundColor Cyan
 
-# Get the absolute Windows path to the repository root (parent of deployment dir)
-$repo_path = (Get-Item $PSScriptRoot).Parent.FullName
+# Get the absolute Windows path to the repository root
+$repo_path = $PWD.Path
 
 # Build the image dynamically inside WSL from the Windows-mounted repository source
 wsl -u root bash -c "cd `$(wslpath '$repo_path') && docker build -t iosxe-upgrade-manager:local -f deployment/Dockerfile ."
