@@ -28,13 +28,15 @@ netsh interface portproxy add v4tov4 listenport=5000 listenaddress=0.0.0.0 conne
 
 Write-Host "Bridges Updated!"
 Write-Host "  -> Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
-Write-Host "  -> Host Port 5000 -> $wsl_ip : 5000 (Web UI)"
-
 Write-Host "`n[3/3] Pulling and running Docker image inside WSL..."
-# Execute docker commands inside WSL using sudo
-wsl -e bash -c "sudo docker pull co88dy/iosxe-upgrade-manager:latest"
-wsl -e bash -c "sudo docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; sudo docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
-wsl -e bash -c "sudo docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs co88dy/iosxe-upgrade-manager:latest"
-Write-Host "`n=== Deployment Complete! ===" -ForegroundColor Green
+Write-Host "Downloading latest image from Docker Hub (this may take a minute or two)..." -ForegroundColor Cyan
+# Execute docker commands inside WSL directly as root to stream output
+wsl -u root docker pull co88dy/iosxe-upgrade-manager:latest
+
+Write-Host "Cleaning up old containers..." -ForegroundColor Cyan
+wsl -u root bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
+
+Write-Host "Starting new container..." -ForegroundColor Cyan
+wsl -u root docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs co88dy/iosxe-upgrade-manager:latestWrite-Host "`n=== Deployment Complete! ===" -ForegroundColor Green
 Write-Host "Access the app at http://localhost:5000 (or the host machine IP)"
 Write-Host "Note: If you reboot Windows, you will need to re-run this script to update the WSL network bridge."
