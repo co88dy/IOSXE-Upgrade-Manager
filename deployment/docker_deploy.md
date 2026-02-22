@@ -70,15 +70,23 @@ New-NetFirewallRule -DisplayName "Allow IOS-XE App (Port 5000)" -Direction Inbou
 ```
 
 ## Connectivity Troubleshooting (PowerShell)
-If the switch fails to connect (I/O Error), run this in **Windows PowerShell (Admin)** to fix the network bridge:
+If the web UI is unreachable from other machines, or if the switch fails to pull images (I/O Error), Docker/WSL networking might be isolated to `localhost`. Run this in **Windows PowerShell (Admin)** to bridge the ports:
 
 ```powershell
-# Get current WSL IP
+# 1. Get current WSL IP
 $wsl_ip = (wsl hostname -I).Trim().Split(" ")[0]
 
-# Reset Bridge (Host 80 -> WSL 5000)
+# 2. Reset Bridges (Clear old rules)
 netsh interface portproxy delete v4tov4 listenport=80 listenaddress=0.0.0.0
-netsh interface portproxy add v4tov4 listenport=80 listenaddress=0.0.0.0 connectport=5000 connectaddress=$wsl_ip
+netsh interface portproxy delete v4tov4 listenport=5000 listenaddress=0.0.0.0
 
-Write-Host "Bridge Updated: Host 80 -> $wsl_ip : 5000"
+# 3. Create Bridges (Host -> WSL)
+netsh interface portproxy add v4tov4 listenport=80 listenaddress=0.0.0.0 connectport=5000 connectaddress=$wsl_ip
+netsh interface portproxy add v4tov4 listenport=5000 listenaddress=0.0.0.0 connectport=5000 connectaddress=$wsl_ip
+
+Write-Host "Bridges Updated!"
+Write-Host "Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
+Write-Host "Host Port 5000 -> $wsl_ip : 5000 (Web UI)"
 ```
+
+*(Note: The internal WSL IP changes after a full Windows reboot, requiring this script to be re-run).*
