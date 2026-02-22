@@ -17,8 +17,8 @@ Write-Host "`n[3/3] Stopping container and removing image inside WSL..."
 wsl -e bash -c "sudo docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; sudo docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
 Write-Host "Container stopped and removed."
 
-wsl -e bash -c "sudo docker rmi co88dy/iosxe-upgrade-manager:latest > /dev/null 2>&1"
-Write-Host "Docker image removed."
+wsl -e bash -c "sudo docker rmi co88dy/iosxe-upgrade-manager:latest-amd64 co88dy/iosxe-upgrade-manager:latest-arm64 co88dy/iosxe-upgrade-manager:latest > /dev/null 2>&1"
+Write-Host "Docker images removed."
 
 Write-Host "`n[4/4] Removing Docker Volumes..."
 wsl -e bash -c "sudo docker volume rm ios-xe-db ios-xe-repo ios-xe-logs > /dev/null 2>&1"
