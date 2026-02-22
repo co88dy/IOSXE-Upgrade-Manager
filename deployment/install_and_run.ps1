@@ -37,6 +37,8 @@ Write-Host "Cleaning up old containers..." -ForegroundColor Cyan
 wsl -u root bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
 
 Write-Host "Starting new container..." -ForegroundColor Cyan
-wsl -u root docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs co88dy/iosxe-upgrade-manager:latestWrite-Host "`n=== Deployment Complete! ===" -ForegroundColor Green
+wsl -u root docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs co88dy/iosxe-upgrade-manager:latest
+
+Write-Host "`n=== Deployment Complete! ===" -ForegroundColor Green
 Write-Host "Access the app at http://localhost:5000 (or the host machine IP)"
 Write-Host "Note: If you reboot Windows, you will need to re-run this script to update the WSL network bridge."
