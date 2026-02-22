@@ -5,23 +5,30 @@ let httpServerIP = '';
 
 // Load configuration and repository on page load
 document.addEventListener('DOMContentLoaded', () => {
-    loadRepoConfig();
+    loadRepoServerURL();
     refreshRepository();
 });
 
-// Load repository configuration
-async function loadRepoConfig() {
+// Load and display the configured HTTP server URL (read-only on this page)
+async function loadRepoServerURL() {
+    const urlEl = document.getElementById('repoServerURL');
+    if (!urlEl) return;
+
     try {
-        const response = await fetch('/api/settings/get');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.http_server_ip) {
-                document.getElementById('httpServerIP').value = data.http_server_ip;
-                httpServerIP = data.http_server_ip;
+        const resp = await fetch('/api/settings/get');
+        if (resp.ok) {
+            const data = await resp.json();
+            const ip = data.http_server_ip;
+            if (ip) {
+                urlEl.textContent = `http://${ip}/repo/<image-filename>`;
+            } else {
+                urlEl.textContent = 'Not configured — set on Dashboard → Settings';
+                urlEl.style.color = 'var(--accent-warning, #f59e0b)';
             }
         }
     } catch (error) {
-        console.error('Error loading config:', error);
+        console.error('Error loading repo server URL:', error);
+        urlEl.textContent = 'Unable to load configuration';
     }
 }
 

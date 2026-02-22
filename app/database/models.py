@@ -44,6 +44,7 @@ class Database:
                 device_role TEXT,
                 current_version TEXT,
                 rommon_version TEXT,
+                config_register TEXT,
                 status TEXT DEFAULT 'Offline',
                 netconf_state TEXT DEFAULT 'Disabled',
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -58,6 +59,7 @@ class Database:
         self._add_column_if_not_exists(cursor, 'inventory', 'precheck_status', 'TEXT')
         self._add_column_if_not_exists(cursor, 'inventory', 'precheck_details', 'TEXT')
         self._add_column_if_not_exists(cursor, 'inventory', 'is_supported', 'TEXT DEFAULT "Yes"')
+        self._add_column_if_not_exists(cursor, 'inventory', 'config_register', 'TEXT')
         
         # Repository table
         cursor.execute('''
@@ -138,17 +140,17 @@ class InventoryModel:
                     ip_address, hostname, serial_number, device_role, 
                     current_version, rommon_version, status, netconf_state, 
                     model, boot_variable, free_space_mb, precheck_status, precheck_details, image_file,
-                    target_image, image_copied, image_verified, is_supported
+                    target_image, image_copied, image_verified, is_supported, config_register
                 ) VALUES (
                     :ip_address, :hostname, :serial_number, :device_role,
                     :current_version, :rommon_version, :status, :netconf_state,
                     :model, :boot_variable, :free_space_mb, :precheck_status, :precheck_details, :image_file,
-                    :target_image, :image_copied, :image_verified, :is_supported
+                    :target_image, :image_copied, :image_verified, :is_supported, :config_register
                 )
             ''', device_data)
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error adding device: {e}")
             return False
         finally:
@@ -187,7 +189,7 @@ class InventoryModel:
             )
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error updating NETCONF state: {e}")
             return False
         finally:
@@ -204,7 +206,7 @@ class InventoryModel:
             if row:
                 return row['target_image']
             return None
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error getting target image: {e}")
             return None
         finally:
@@ -228,7 +230,7 @@ class InventoryModel:
             ''', (target_image, ip_address))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error setting target image: {e}")
             return False
         finally:
@@ -247,7 +249,7 @@ class InventoryModel:
             ''', (status, ip_address))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error setting image copied status: {e}")
             return False
         finally:
@@ -266,7 +268,7 @@ class InventoryModel:
             ''', (status, ip_address))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error setting image verified status: {e}")
             return False
         finally:
@@ -281,7 +283,7 @@ class InventoryModel:
             cursor.execute('DELETE FROM inventory')
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error clearing inventory: {e}")
             return False
         finally:
@@ -303,7 +305,7 @@ class RepositoryModel:
             ''', (filename, md5, file_path))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error adding image: {e}")
             return False
         finally:
@@ -318,7 +320,7 @@ class RepositoryModel:
             cursor.execute('SELECT * FROM repository ORDER BY upload_date DESC')
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error getting images: {e}")
             return []
         finally:
@@ -335,7 +337,7 @@ class RepositoryModel:
             if row:
                 return row['md5_expected']
             return None
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error getting image hash: {e}")
             return None
         finally:
@@ -350,7 +352,7 @@ class RepositoryModel:
             cursor.execute('DELETE FROM repository WHERE filename = ?', (filename,))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error deleting image: {e}")
             return False
         finally:
@@ -365,7 +367,7 @@ class RepositoryModel:
             cursor.execute('SELECT * FROM repository WHERE filename = ?', (filename,))
             row = cursor.fetchone()
             return dict(row) if row else None
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error getting image details: {e}")
             return None
         finally:
@@ -396,7 +398,7 @@ class JobsModel:
             ))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error creating job: {e}")
             return False
         finally:
@@ -420,7 +422,7 @@ class JobsModel:
                 )
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error updating job: {e}")
             return False
         finally:
@@ -440,7 +442,7 @@ class JobsModel:
             cursor.execute('DELETE FROM jobs WHERE job_id = ?', (job_id,))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error deleting job: {e}")
             return False
         finally:
@@ -458,7 +460,7 @@ class JobsModel:
             )
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error updating job schedule: {e}")
             return False
         finally:
@@ -490,6 +492,21 @@ class JobsModel:
         return dict(row) if row else None
         
     @staticmethod
+    def get_scheduled_jobs(db: Database) -> List[Dict[str, Any]]:
+        """Get all scheduled jobs"""
+        conn = db.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT job_id, target_ip, target_version, schedule_time, log_file_path FROM jobs WHERE status = 'Scheduled'")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error getting scheduled jobs: {e}")
+            return []
+        finally:
+            conn.close()
+            
+    @staticmethod
     def get_active_jobs_for_device(db: Database, ip_address: str) -> List[Dict[str, Any]]:
         """Get active jobs for a specific device"""
         conn = db.get_connection()
@@ -498,6 +515,36 @@ class JobsModel:
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
+
+    @staticmethod
+    def get_active_jobs(db: Database) -> List[Dict[str, Any]]:
+        """Get all active (RUNNING) jobs"""
+        conn = db.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM jobs WHERE status = 'RUNNING' ORDER BY start_time DESC")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error getting active jobs: {e}")
+            return []
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_jobs_for_device(db: Database, ip_address: str) -> List[Dict[str, Any]]:
+        """Get recent jobs for a specific device"""
+        conn = db.get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM jobs WHERE target_ip = ? ORDER BY start_time DESC LIMIT 10", (ip_address,))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"Error getting jobs for device: {e}")
+            return []
+        finally:
+            conn.close()
     
     @staticmethod
     def clear_all(db: Database) -> bool:
@@ -508,7 +555,7 @@ class JobsModel:
             cursor.execute('DELETE FROM jobs')
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error clearing jobs: {e}")
             return False
         finally:
@@ -530,7 +577,7 @@ class PreChecksModel:
             ''', (ip_address, check_name, result, message))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error adding pre-check: {e}")
             return False
         finally:
@@ -548,7 +595,7 @@ class PreChecksModel:
             )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error getting checks: {e}")
             return []
         finally:
@@ -563,7 +610,7 @@ class PreChecksModel:
             cursor.execute('DELETE FROM prechecks')
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error clearing pre-checks: {e}")
             return False
         finally:
@@ -578,7 +625,7 @@ class PreChecksModel:
             cursor.execute('DELETE FROM prechecks WHERE ip_address = ?', (ip_address,))
             conn.commit()
             return True
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error clearing pre-checks: {e}")
             return False
         finally:

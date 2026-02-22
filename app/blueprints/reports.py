@@ -3,7 +3,8 @@ Reports blueprint for generating downloadable PDF reports
 """
 
 from flask import Blueprint, send_file, request, jsonify, render_template
-from app.database.models import Database, InventoryModel, PreChecksModel
+from app.database.models import InventoryModel, PreChecksModel
+from app.extensions import db, get_config
 from fpdf import FPDF
 import json
 import os
@@ -13,10 +14,7 @@ from datetime import datetime
 reports_bp = Blueprint('reports', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 
 @reports_bp.route('/reports/prechecks')
 def view_prechecks_report():
@@ -24,6 +22,13 @@ def view_prechecks_report():
     Render the web view for prechecks report
     """
     return render_template('reports_prechecks.html')
+
+@reports_bp.route('/reports/detailed')
+def view_detailed_report():
+    """
+    Render the web view for the detailed device report
+    """
+    return render_template('report.html')
 
 @reports_bp.route('/api/reports/prechecks/data')
 def get_prechecks_report_data():

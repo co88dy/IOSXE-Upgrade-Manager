@@ -10,9 +10,9 @@
     "path": "app/logs"
   },
   "credentials": {
-    "ssh_username": "admin",
-    "ssh_password": "password",
-    "enable_password": "password",
+    "ssh_username": "cisco",
+    "ssh_password": "cisco",
+    "enable_password": "cisco",
     "netconf_port": 830
   },
   "scheduler": {
@@ -23,5 +23,5 @@
     "port": 5000,
     "debug": true
   },
-  "http_server_ip": "192.168.1.100"
+  "http_server_ip": "100.64.0.1"
 }

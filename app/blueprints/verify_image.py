@@ -4,21 +4,19 @@ Spawns individual jobs per device for MD5 checksum validation.
 """
 
 from flask import Blueprint, request, jsonify
-from app.database.models import Database, InventoryModel, JobsModel, RepositoryModel
+from app.database.models import InventoryModel, JobsModel, RepositoryModel
 from app.utils.ssh_client import SSHClient
 from app.utils.job_manager import JobManager
+from app.utils.netconf_client import NetconfClient
+from app.extensions import db, get_config
 import json
-import threading
 import uuid
 from datetime import datetime
 
 verify_image_bp = Blueprint('verify_image', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 job_manager = JobManager(config['database']['path'], config['logs']['path'])
 
 
@@ -68,13 +66,13 @@ def start_verify_job():
             'log_file_path': log_file_path
         })
 
-        # Start Background Thread
-        thread = threading.Thread(
-            target=execute_verify_job,
+        # Start Background Job
+        from flask import current_app
+        current_app.config['scheduler'].add_job(
+            id=f"verify_image_{job_id}",
+            func=execute_verify_job,
             args=(job_id, ip, target_image)
         )
-        thread.daemon = True
-        thread.start()
 
     return jsonify({
         'success': True,
@@ -90,6 +88,7 @@ def execute_verify_job(job_id, ip_address, image_filename):
     job_manager.update_job_status(job_id, "Running")
     job_manager.append_log(job_id, f"Stack: Starting image verification for {ip_address}")
     
+    result = False
     try:
         # Reload config
         with open('config.json', 'r') as f:
@@ -109,7 +108,11 @@ def execute_verify_job(job_id, ip_address, image_filename):
             return
 
         # Verification Logic
-        destination_fs = "flash:" # Default
+        # Determine filesystem based on device role
+        device_info = InventoryModel.get_device(db, ip_address)
+        device_role = device_info.get('device_role', 'Access') if device_info else 'Access'
+        netconf_client = NetconfClient(ip_address, 830, username, password)
+        destination_fs = netconf_client.get_filesystem_for_role(device_role)
         
         job_manager.append_log(job_id, f"Verifying {image_filename} on {destination_fs}...")
         

@@ -3,25 +3,23 @@ Upgrade blueprint for upgrade orchestration and scheduling
 """
 
 from flask import Blueprint, request, jsonify
-from app.database.models import Database, JobsModel, InventoryModel, PreChecksModel
+from app.database.models import JobsModel, InventoryModel, PreChecksModel
 from app.utils.precheck_engine import PreCheckEngine
 from app.utils.ssh_client import SSHClient
 from app.utils.netconf_client import NetconfClient
 from app.utils.event_bus import emit_job_log
 from app.utils.job_manager import JobManager
+from app.extensions import db, get_config
 import json
 import uuid
+import zoneinfo
 from datetime import datetime
-import threading
 import os
 
 upgrade_bp = Blueprint('upgrade', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 logs_path = config.get('logs', {}).get('path', 'app/logs')
 job_manager = JobManager(config['database']['path'], logs_path)
 
@@ -112,7 +110,7 @@ def get_prechecks(ip_address):
     if device:
         try:
             device_info = dict(device)
-        except:
+        except (TypeError, ValueError):
             pass # Handle case where dict conversion fails or device is None
             
     return jsonify({
@@ -121,7 +119,6 @@ def get_prechecks(ip_address):
     })
 
 
-import zoneinfo
 
 @upgrade_bp.route('/api/upgrade/schedule', methods=['POST'])
 def schedule_upgrade():
@@ -145,19 +142,18 @@ def schedule_upgrade():
     # Process schedule_time with timezone
     if schedule_time:
         try:
-            # Parse naive time from string
             dt = datetime.fromisoformat(schedule_time)
-            # Apply timezone
-            tz = zoneinfo.ZoneInfo(timezone)
-            # We use replace because the input is "Time in that timezone" 
-            # not "Time in UTC that needs converting"
-            dt = dt.replace(tzinfo=tz)
-            schedule_time = dt.isoformat()
-        except Exception as e:
+            # Apply timezone if not provided in string
+            if dt.tzinfo is None:
+                tz = zoneinfo.ZoneInfo(timezone)
+                dt = dt.replace(tzinfo=tz)
+            # Convert to UTC for storage
+            dt_utc = dt.astimezone(zoneinfo.ZoneInfo('UTC'))
+            schedule_time = dt_utc.isoformat()
+        except ValueError as e:
             print(f"Error processing timezone {timezone}: {e}")
-            # Fallback to naive/UTC if error
             pass
-    
+
     if not all([ip_address, target_version, image_filename]):
         return jsonify({'error': 'Missing required parameters'}), 400
     
@@ -166,19 +162,18 @@ def schedule_upgrade():
     if not device:
         return jsonify({'error': 'Device not found in inventory'}), 404
     
-    # Check if pre-checks passed
-    # User requested ability to bypass pre-checks (2026-02-12)
-    # prechecks = PreChecksModel.get_checks_for_device(db, ip_address)
-    # if not prechecks:
-    #     # Warning only
-    #     pass 
-    
-    # Check for any FAIL or ERROR results - BYPASSING validation to allow override
-    # for check in prechecks:
-    #     if check['result'] in ['FAIL', 'ERROR']:
-    #         # Warning only
-    #         pass
-    
+    # Block upgrade if any prechecks are in FAIL state
+    prechecks = PreChecksModel.get_checks_for_device(db, ip_address)
+    failed_checks = [c for c in prechecks if c['result'] == 'FAIL']
+    if failed_checks:
+        return jsonify({
+            'error': 'Upgrade blocked: one or more prechecks are in FAIL state. Resolve all failures before upgrading.',
+            'failed_checks': [
+                {'check': c['check_name'], 'reason': c['message']}
+                for c in failed_checks
+            ]
+        }), 400
+
     # Create job
     job_id = str(uuid.uuid4())
     
@@ -207,11 +202,12 @@ def schedule_upgrade():
     
     # If no schedule time, run immediately
     if not schedule_time:
-        thread = threading.Thread(
-            target=execute_upgrade,
+        from flask import current_app
+        current_app.config['scheduler'].add_job(
+            id=f"upgrade_immediate_{job_id}",
+            func=execute_upgrade,
             args=(job_id, ip_address, image_filename, device['device_role'], log_file_path)
         )
-        thread.start()
     
     return jsonify({
         'message': 'Upgrade job created',
@@ -243,7 +239,7 @@ def execute_upgrade(job_id: str, ip_address: str, image_filename: str, device_ro
                 f.write(f"Device: {ip_address}\n")
                 f.write(f"Target: {image_filename}\n")
                 f.write("-" * 50 + "\n")
-        except Exception as e:
+        except OSError as e:
             print(f"Error creating log file: {e}")
 
     def log(message):
@@ -274,7 +270,7 @@ def execute_upgrade(job_id: str, ip_address: str, image_filename: str, device_ro
         ssh = SSHClient(ip_address, username, password, enable_password)
         if not ssh.connect():
             log("ERROR: SSH connection failed")
-            JobsModel.update_job_status(db, job_id, 'Failed', '\n'.join(log_output))
+            JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())
             return
         
         log("SSH connection established")
@@ -283,7 +279,7 @@ def execute_upgrade(job_id: str, ip_address: str, image_filename: str, device_ro
         log(f"Verifying {image_filename} exists on {filesystem}...")
         if not ssh.check_file_exists(filesystem, image_filename):
              log(f"ERROR: Image file {image_filename} not found on {filesystem}. Please 'Copy Image' first.")
-             JobsModel.update_job_status(db, job_id, 'Failed', '\n'.join(log_output))
+             JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())
              ssh.disconnect()
              return
 
@@ -312,14 +308,14 @@ def execute_upgrade(job_id: str, ip_address: str, image_filename: str, device_ro
             else:
                 log("Install command completed successfully")
             
-            JobsModel.update_job_status(db, job_id, 'Success', '\n'.join(log_output))
+            JobsModel.update_job_status(db, job_id, 'Success', datetime.now())
         else:
             log(f"ERROR: Install command failed - {install_result.get('error', 'Unknown error')}")
-            JobsModel.update_job_status(db, job_id, 'Failed', '\n'.join(log_output))
+            JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())
         
         ssh.disconnect()
         log("Upgrade process completed")
         
     except Exception as e:
         log(f"EXCEPTION: {str(e)}")
-        JobsModel.update_job_status(db, job_id, 'Failed', '\n'.join(log_output))
+        JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())

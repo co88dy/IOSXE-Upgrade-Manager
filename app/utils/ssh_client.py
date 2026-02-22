@@ -3,7 +3,7 @@ SSH client for IOS-XE device communication
 Uses Netmiko for CLI-based operations and NETCONF management
 """
 
-from netmiko import ConnectHandler
+from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
 from typing import Dict, Any, Optional, List
 import re
 import time
@@ -39,6 +39,12 @@ class SSHClient:
                 self.connection.enable()
             
             return True
+        except NetmikoAuthenticationException:
+            print(f"SSH authentication failed to {self.host}")
+            return False
+        except NetmikoTimeoutException:
+            print(f"SSH connection timed out to {self.host}")
+            return False
         except Exception as e:
             print(f"SSH connection failed to {self.host}: {e}")
             return False
@@ -94,23 +100,32 @@ class SSHClient:
     
     def check_netconf_status(self) -> str:
         """
-        Check if NETCONF is enabled on the device
+        Check if NETCONF is enabled on the device.
+        Always ensures privileged exec mode before running show running-config.
         Returns 'Enabled' or 'Disabled'
         """
         if not self.connection:
             return 'Unknown'
-        
+
         try:
+            # Ensure we are in privileged exec mode (# prompt)
+            if not self.connection.check_enable_mode():
+                try:
+                    self.connection.enable()
+                except Exception as en_err:
+                    print(f"[WARN] Could not enter enable mode on {self.host}: {en_err}")
+
             output = self.connection.send_command('show running-config | include netconf-yang')
-            # If netconf-yang appears in running config, it's enabled
+            print(f"[DEBUG] netconf status raw output for {self.host}: '{output.strip()}'")
+
             if 'netconf-yang' in output and 'no netconf-yang' not in output:
                 return 'Enabled'
             else:
                 return 'Disabled'
         except Exception as e:
-            print(f"Error checking NETCONF status: {e}")
+            print(f"[ERROR] check_netconf_status failed for {self.host}: {e}")
             return 'Unknown'
-    
+
     def check_rommon_variables(self) -> Dict[str, Any]:
         """
         Check ROMMON variables for SWITCH_IGNORE_STARTUP_CFG flag
@@ -175,13 +190,18 @@ class SSHClient:
             rom_match = re.search(r'ROM:\s+(.+)', output)
             rommon_version = rom_match.group(1).strip() if rom_match else 'Unknown'
             
+            # Parse Configuration Register
+            confreg_match = re.search(r'Configuration register is (0x[0-9a-fA-F]+)', output)
+            config_register = confreg_match.group(1) if confreg_match else 'Unknown'
+            
             return {
                 'version': version,
                 'hostname': hostname,
                 'serial_number': serial,
                 'model': model,
                 'image_file': image_file,
-                'rommon_version': rommon_version
+                'rommon_version': rommon_version,
+                'config_register': config_register
             }
         except Exception as e:
             print(f"Error getting version info: {e}")
@@ -521,11 +541,13 @@ class SSHClient:
         except Exception as e:
             return None
     
-    def execute_command_stream(self, command: str, callback=None, prompts: Dict[str, str] = None) -> bool:
+    def execute_command_stream(self, command: str, callback=None, prompts: Dict[str, str] = None, timeout: int = 3600, idle_timeout: int = 300) -> bool:
         """
         Execute command and stream output to callback
         Uses invoke_shell to get real-time output
         prompts: Dict of regex patterns to responses, e.g. {r'\[y/n\]': 'y'}
+        timeout: Maximum total execution time in seconds
+        idle_timeout: Maximum time without receiving any output in seconds
         """
         if not self.connection:
             return False
@@ -537,10 +559,26 @@ class SSHClient:
             # Send command
             self.connection.write_channel(command + '\n')
             
+            start_time = time.time()
+            last_recv_time = time.time()
+            
             # Loop to read output
             while True:
                 time.sleep(0.5)
+                
+                current_time = time.time()
+                if current_time - start_time > timeout:
+                    if callback:
+                        callback(f"\nError: Command execution exceeded total timeout of {timeout}s\n")
+                    return False
+                    
+                if current_time - last_recv_time > idle_timeout:
+                    if callback:
+                        callback(f"\nError: No output received for {idle_timeout}s. Connection likely dropped.\n")
+                    return False
+
                 if self.connection.remote_conn.recv_ready():
+                    last_recv_time = time.time()
                     output = self.connection.read_channel()
                     if callback:
                         callback(output)

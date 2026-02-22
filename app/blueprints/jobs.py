@@ -3,18 +3,18 @@ Jobs blueprint for managing and viewing background jobs
 """
 
 from flask import Blueprint, request, jsonify
-from app.database.models import Database, JobsModel
+from app.database.models import JobsModel
 from app.utils.job_manager import JobManager
 from app.utils.event_bus import event_queue, get_events
+from app.extensions import db, get_config
 import json
+import zoneinfo
+from datetime import datetime
 
 jobs_bp = Blueprint('jobs', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 logs_path = config.get('logs', {}).get('path', 'app/logs')
 job_manager = JobManager(config['database']['path'], logs_path)
 
@@ -59,13 +59,7 @@ def get_active_jobs():
     """
     Get all active jobs (RUNNING status)
     """
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM jobs WHERE status = 'RUNNING' ORDER BY start_time DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    jobs = [dict(row) for row in rows]
+    jobs = JobsModel.get_active_jobs(db)
     return jsonify({
         'success': True,
         'count': len(jobs),
@@ -78,13 +72,7 @@ def get_device_jobs(ip):
     """
     Get all jobs for a specific device
     """
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM jobs WHERE target_ip = ? ORDER BY start_time DESC LIMIT 10", (ip,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    jobs = [dict(row) for row in rows]
+    jobs = JobsModel.get_jobs_for_device(db, ip)
     return jsonify({
         'success': True,
         'jobs': jobs
@@ -97,20 +85,26 @@ def stream_events():
     Server-Sent Events endpoint for real-time logs
     Shared across all job types (copy, verify, upgrade, etc.)
     """
+    import time
+    
     def generate():
         # Start from the current end of queue to avoid replaying old history
         last_index = len(event_queue)
+        heartbeat_count = 0
+        max_heartbeats = 600  # ~5 minutes at 0.5s intervals
         
-        while True:
+        while heartbeat_count < max_heartbeats:
             # Send new events
             events = get_events(last_index)
+            if events:
+                heartbeat_count = 0  # Reset on activity
             for event in events:
                 yield f"data: {json.dumps(event)}\n\n"
                 last_index += 1
             
             # Keep connection alive
-            import time
             time.sleep(0.5)
+            heartbeat_count += 1
     
     
     return generate(), {
@@ -140,9 +134,6 @@ def delete_job(job_id):
         return jsonify({'success': False, 'message': 'Failed to delete job'}), 500
 
 
-import zoneinfo
-from datetime import datetime
-
 @jobs_bp.route('/api/jobs/<job_id>/reschedule', methods=['POST'])
 def reschedule_job(job_id):
     """Reschedule a job"""
@@ -159,7 +150,7 @@ def reschedule_job(job_id):
         tz = zoneinfo.ZoneInfo(timezone)
         dt = dt.replace(tzinfo=tz)
         schedule_time = dt.isoformat()
-    except Exception as e:
+    except (ValueError, KeyError) as e:
         print(f"Error processing timezone {timezone}: {e}")
         # Fallback to naive/UTC if error
         pass

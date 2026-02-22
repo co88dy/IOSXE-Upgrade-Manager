@@ -117,6 +117,8 @@ def discover_devices():
                 # Get hardware info
                 hardware_info = netconf.get_device_hardware()
                 system_info = netconf.get_system_info()
+                filesystem_info = netconf.get_filesystem_info()
+                boot_info = netconf.get_boot_variables()
                 
                 if hardware_info and system_info:
                     # Determine device role
@@ -124,20 +126,64 @@ def discover_devices():
                     
                     # Check for existing device
                     existing_dev = InventoryModel.get_device(db, ip)
+                    
+                    free_space_mb = int(filesystem_info.get('available_gb', 0) * 1024) if filesystem_info else None
+                    boot_variable = boot_info.get('boot_system') if boot_info else None
+                    config_register = boot_info.get('config_register') if boot_info else 'Unknown'
+                    if config_register == 'Unknown':
+                        config_register = None
+
+                    # Compute initial version from NETCONF hardware info
+                    # (hardware 'version' field is often a HW revision like 'V00', not the SW version)
+                    actual_version = hardware_info.get('sw_version')
+                    if not actual_version or actual_version == 'Unknown':
+                        actual_version = system_info.get('version', 'Unknown')
+                    
+                    # If C8000V/CSR1000V virtualization models return empty, selectively fallback to SSH
+                    # Also fall back for sw_version when it looks like a hardware revision (e.g. 'V00')
+                    # or a full Cisco IOS banner string (e.g. 'Cisco IOS Software [Bengaluru]...')
+                    import re as _re
+                    hw_version_looks_invalid = (
+                        not actual_version
+                        or actual_version == 'Unknown'
+                        or bool(_re.match(r'^V\d+$', str(actual_version).strip()))
+                        or not bool(_re.match(r'^\d+\.\d+', str(actual_version).strip()))  # not a clean X.X version
+                    )
+                    ssh_version_info = None
+                    if free_space_mb is None or boot_variable is None or config_register is None or hw_version_looks_invalid:
+                        print(f"[INFO] NETCONF succeeded for {ip} but missing partial data (version={actual_version}). Falling back to SSH for missing fields.")
+                        ssh_fallback = SSHClient(ip, username, password, enable_password)
+                        if ssh_fallback.connect():
+                            if free_space_mb is None:
+                                free_space_mb = ssh_fallback.get_free_space_mb()
+                            if boot_variable is None:
+                                boot_variable = ssh_fallback.get_boot_variables()
+                            # Fetch version info once if needed for config_register or version
+                            if config_register is None or hw_version_looks_invalid:
+                                ssh_version_info = ssh_fallback.get_version_info()
+                            if config_register is None and ssh_version_info:
+                                config_register = ssh_version_info.get('config_register', 'Unknown')
+                            if hw_version_looks_invalid and ssh_version_info:
+                                actual_version = ssh_version_info.get('version', actual_version)
+                            ssh_fallback.disconnect()
+
+                    # Derive ROMMON from SSH version info if available, otherwise N/A
+                    rommon_version = (ssh_version_info.get('rommon_version', 'N/A') if ssh_version_info else 'N/A')
 
                     device_data = {
                         'ip_address': ip,
                         'hostname': system_info.get('hostname', 'Unknown'),
                         'serial_number': hardware_info.get('serial_number', 'Unknown'),
                         'device_role': device_role,
-                        'current_version': system_info.get('version', 'Unknown'),
-                        'rommon_version': 'N/A',  # Would need additional query
+                        'current_version': actual_version,
+                        'rommon_version': rommon_version,
+                        'config_register': config_register,
                         'status': 'Online',
                         'netconf_state': 'Enabled',
                         'model': hardware_info.get('part_number', 'Unknown'),
-                        'boot_variable': None,  # Not easily available via NETCONF
-                        'free_space_mb': None,  # Not easily available via NETCONF
-                        'image_file': None,  # Not available via NETCONF
+                        'boot_variable': boot_variable,
+                        'free_space_mb': free_space_mb,
+                        'image_file': str(boot_variable).split(',')[0] if boot_variable else None,
                         'precheck_status': existing_dev.get('precheck_status') if existing_dev else None,
                         'precheck_details': existing_dev.get('precheck_details') if existing_dev else None,
                         'target_image': existing_dev.get('target_image') if existing_dev else None,
@@ -186,9 +232,10 @@ def discover_devices():
                             'ip_address': ip,
                             'hostname': version_info.get('hostname', 'Unknown'),
                             'serial_number': version_info.get('serial_number', 'Unknown'),
-                            'device_role': 'Unknown',
+                            'device_role': netconf.determine_device_role(version_info.get('model', 'Unknown')),
                             'current_version': version_info.get('version', 'Unknown'),
                             'rommon_version': 'N/A',
+                            'config_register': version_info.get('config_register', 'Unknown'),
                             'status': 'Online',
                             'netconf_state': netconf_state,  # Use actual status from device
                             'model': version_info.get('model', 'Unknown'),
@@ -226,6 +273,61 @@ def discover_devices():
     return jsonify({'results': results})
 
 
+@discovery_bp.route('/api/netconf/sync-state', methods=['POST'])
+def sync_netconf_state():
+    """
+    Update the DB netconf_state for a device without touching the device.
+    Body: {"ip": "10.10.20.1", "netconf_state": "Enabled"}
+    Used to reconcile DB with the live state discovered via SSH check.
+    """
+    data = request.get_json()
+    ip = data.get('ip', '').strip()
+    state = data.get('netconf_state', '').strip()
+
+    if not ip or state not in ('Enabled', 'Disabled'):
+        return jsonify({'error': 'ip and valid netconf_state required'}), 400
+
+    db = Database()
+    success = InventoryModel.update_netconf_state(db, ip, state)
+    if success:
+        print(f"[INFO] /api/netconf/sync-state: updated {ip} → {state} in DB")
+        return jsonify({'ip': ip, 'netconf_state': state, 'updated': True})
+    else:
+        return jsonify({'error': 'DB update failed'}), 500
+
+
+@discovery_bp.route('/api/netconf/status', methods=['GET'])
+def get_netconf_status():
+    """
+    Check the live NETCONF state on a device via SSH.
+    Query param: ?ip=10.10.20.1
+    Returns: {"ip": "...", "netconf_state": "Enabled"|"Disabled"|"Unknown"}
+    """
+    ip = request.args.get('ip', '').strip()
+    if not ip:
+        return jsonify({'error': 'ip query parameter required'}), 400
+
+    config = get_config()
+    username = config['credentials']['ssh_username']
+    password = config['credentials']['ssh_password']
+    enable_password = config['credentials'].get('enable_password', '')
+
+    try:
+        ssh = SSHClient(ip, username, password, enable_password)
+        if ssh.connect():
+            print(f"[INFO] /api/netconf/status: SSH connected to {ip}, checking state...")
+            state = ssh.check_netconf_status()
+            ssh.disconnect()
+            print(f"[INFO] /api/netconf/status: {ip} → {state}")
+            return jsonify({'ip': ip, 'netconf_state': state})
+        else:
+            print(f"[WARN] /api/netconf/status: SSH connection failed to {ip}")
+            return jsonify({'ip': ip, 'netconf_state': 'Unknown', 'error': 'SSH connection failed'})
+    except Exception as e:
+        print(f"[ERROR] /api/netconf/status: {ip} → {e}")
+        return jsonify({'ip': ip, 'netconf_state': 'Unknown', 'error': str(e)}), 500
+
+
 @discovery_bp.route('/api/netconf/toggle', methods=['POST'])
 def toggle_netconf():
     """
@@ -251,7 +353,15 @@ def toggle_netconf():
         try:
             ssh = SSHClient(ip, username, password, enable_password)
             if ssh.connect():
-                if action == 'enable':
+                if action == 'toggle':
+                    current_state = ssh.check_netconf_status()
+                    if current_state == 'Enabled':
+                        success = ssh.disable_netconf()
+                        new_state = 'Disabled' if success else 'Enabled'
+                    else:
+                        success = ssh.enable_netconf()
+                        new_state = 'Enabled' if success else 'Disabled'
+                elif action == 'enable':
                     success = ssh.enable_netconf()
                     new_state = 'Enabled' if success else 'Disabled'
                 else:
@@ -302,6 +412,7 @@ def clear_inventory():
     
     # 4. Clear Log Files
     try:
+        config = get_config()
         logs_path = config.get('logs', {}).get('path', 'app/logs')
         # Handle relative path
         if not os.path.isabs(logs_path):

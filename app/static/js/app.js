@@ -35,6 +35,8 @@ function navigateTo(event, page) {
         window.location.href = '/reports/prechecks';
     } else if (page === 'models') {
         window.location.href = '/models';
+    } else if (page === 'report') {
+        window.location.href = '/reports/detailed';
     }
 }
 
@@ -48,7 +50,7 @@ function showConfirmModal(message) {
         confirmModalResolve = resolve;
         const modal = document.getElementById('confirmModal');
         const messageEl = document.getElementById('confirmMessage');
-        messageEl.textContent = message;
+        messageEl.innerHTML = message;
         modal.classList.add('show');
     });
 }
@@ -84,6 +86,37 @@ function showNotification(title, message, icon = 'ℹ️') {
 function closeNotificationModal() {
     const modal = document.getElementById('notificationModal');
     modal.classList.remove('show');
+}
+
+/**
+ * Show a blocking modal when upgrade is rejected due to failed prechecks.
+ * @param {string} ip - Device IP address
+ * @param {string} failLines - Bullet-point list of failed checks and reasons
+ */
+function showPrecheckFailModal(ip, failLines) {
+    const title = `\u26a0\ufe0f Upgrade Blocked \u2014 ${ip}`;
+    const message = `
+        <div style="text-align:left;">
+            <p style="color: var(--danger, #ef4444); font-weight: 600; margin-bottom: 8px;">
+                One or more prechecks are in FAIL state. Resolve all failures before upgrading.
+            </p>
+            <pre style="
+                background: var(--bg-tertiary, #1e1e2e);
+                border: 1px solid var(--danger, #ef4444);
+                border-radius: 6px;
+                padding: 12px;
+                font-size: 0.85em;
+                white-space: pre-wrap;
+                word-break: break-word;
+                color: var(--text-primary, #cdd6f4);
+                max-height: 260px;
+                overflow-y: auto;
+            ">${failLines}</pre>
+            <p style="margin-top: 10px; font-size: 0.85em; color: var(--text-muted);">
+                Re-run Prechecks after fixing the issues to confirm all checks pass before retrying the upgrade.
+            </p>
+        </div>`;
+    showNotification(title, message, '\ud83d\udeab');
 }
 
 // Loading Overlay Functions
@@ -139,7 +172,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Clock and Timezone
     initClockAndTimezone();
+
+    // Load HTTP server IP dropdown on the dashboard settings panel
+    loadHttpServerIPs();
 });
+
+async function loadHttpServerIPs() {
+    const select = document.getElementById('httpServerIPSelect');
+    if (!select) return;
+
+    try {
+        const resp = await fetch('/api/settings/server-ips');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        // Clear placeholder and rebuild options
+        select.innerHTML = '';
+
+        if (data.ips && data.ips.length > 0) {
+            data.ips.forEach(entry => {
+                const opt = document.createElement('option');
+                opt.value = entry.ip;
+                opt.textContent = entry.label || entry.ip;
+                if (entry.ip === data.saved_ip) opt.selected = true;
+                select.appendChild(opt);
+            });
+        } else {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'No interfaces detected';
+            select.appendChild(opt);
+        }
+
+        // Always provide the custom option at the end
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = 'Enter custom IP...';
+        select.appendChild(customOpt);
+
+        handleHttpIPSelectChange();
+    } catch (e) {
+        console.error('Failed to load server IPs:', e);
+    }
+}
+
+function handleHttpIPSelectChange() {
+    const select = document.getElementById('httpServerIPSelect');
+    const customInput = document.getElementById('httpServerIPCustom');
+    if (!select || !customInput) return;
+    customInput.style.display = select.value === '__custom__' ? 'block' : 'none';
+}
 
 function initClockAndTimezone() {
     const tzSelect = document.getElementById('globalTimezone');
@@ -187,6 +269,24 @@ function updateClock() {
 
         clockEl.textContent = `${dateString} ${timeString}`;
         if (tzDisplayEl) tzDisplayEl.textContent = timezone;
+
+        // Also update the scheduler card clock widget
+        const schedTime = document.getElementById('schedulerClockTime');
+        const schedTz = document.getElementById('schedulerClockTz');
+        if (schedTime) {
+            schedTime.textContent = now.toLocaleTimeString('en-US', {
+                timeZone: timezone,
+                hour12: true,
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        if (schedTz) {
+            // Show a friendly label: if it's a named tz like America/Denver, show last segment
+            const tzLabel = timezone.includes('/') ? timezone.split('/').pop().replace(/_/g, ' ') : timezone;
+            schedTz.textContent = tzLabel;
+        }
     } catch (e) {
         console.error('Error updating clock:', e);
         clockEl.textContent = '--:--:--';
@@ -239,6 +339,20 @@ async function runPrechecks() {
         return;
     }
 
+    // Step 1: Re-discover to get fresh device data before running checks
+    showLoading(`Re-discovering ${selectedIPs.length} device(s) before prechecks...`);
+    try {
+        await fetch('/api/rediscover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip_list: selectedIPs })
+        });
+    } catch (e) {
+        console.warn('Rediscovery failed before prechecks:', e);
+        showNotification('Warning', 'Re-discovery failed — proceeding with prechecks using existing device data.', '⚠️');
+    }
+
+    // Step 2: Run prechecks
     showLoading(`Running prechecks on ${selectedIPs.length} device(s)...`);
 
     try {
@@ -389,21 +503,18 @@ async function toggleNetconfBulk() {
         return;
     }
 
-    const action = await showConfirmModal('Enable or disable NETCONF? (OK = Enable, Cancel = Disable)');
-    const actionStr = action ? 'enable' : 'disable';
-
-    showLoading(`${actionStr === 'enable' ? 'Enabling' : 'Disabling'} NETCONF on ${selectedIPs.length} device(s)...`);
+    showLoading(`Toggling NETCONF on ${selectedIPs.length} device(s)...`);
 
     try {
         const response = await fetch('/api/netconf/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip_list: selectedIPs, action: actionStr })
+            body: JSON.stringify({ ip_list: selectedIPs, action: 'toggle' })
         });
 
         const data = await response.json();
         hideLoading();
-        showNotification('NETCONF Updated', `NETCONF ${actionStr}d on selected devices`, '✅');
+        showNotification('NETCONF Updated', `NETCONF toggled on selected devices`, '✅');
         loadInventory();
     } catch (error) {
         hideLoading();
@@ -618,7 +729,6 @@ async function loadInventory() {
                 <td><input type="checkbox" class="device-checkbox" value="${device.ip_address}" onchange="updateSelectedCount()" ${checkboxDisabled}></td>
                 <td>${device.ip_address}</td>
                 <td>${device.hostname}</td>
-                <td>${device.serial_number}</td>
                 <td>
                     ${device.model || 'Unknown'}
                     ${device.is_supported === 'No' ? '<span title="Model not officially supported" style="cursor: help;">⚠️</span>' : ''}
@@ -630,7 +740,7 @@ async function loadInventory() {
                 <td>${targetImageSelect}</td>
                 <td>${imageStatus}</td>
                 <td>${statusBadge}</td>
-                <td><span class="badge ${device.netconf_state === 'Enabled' ? 'badge-success' : 'badge-warning'}">${device.netconf_state}</span></td>
+                <td><span class="badge ${device.netconf_state === 'Enabled' ? 'badge-success' : 'badge-warning'}" style="cursor: pointer;" onclick="toggleNetconf('${device.ip_address}', '${device.netconf_state}')" title="Click to toggle NETCONF">${device.netconf_state}</span></td>
                 <td>${device.boot_variable || 'N/A'}</td>
                 <td>${device.free_space_mb !== null && device.free_space_mb !== undefined ? device.free_space_mb.toLocaleString() : 'N/A'}</td>
                 <td>${precheckBadge}</td>
@@ -657,22 +767,73 @@ async function loadInventory() {
 }
 
 async function toggleNetconf(ip, currentState) {
-    const action = currentState === 'Enabled' ? 'disable' : 'enable';
+    // Step 1: Check the live NETCONF state on the device via SSH
+    showLoading(`Checking NETCONF status on ${ip}...`);
+
+    let liveState = currentState; // fall back to DB value if SSH check fails
+    try {
+        const statusResp = await fetch(`/api/netconf/status?ip=${encodeURIComponent(ip)}`);
+        if (statusResp.ok) {
+            const statusData = await statusResp.json();
+            if (statusData.netconf_state && statusData.netconf_state !== 'Unknown') {
+                liveState = statusData.netconf_state;
+            }
+        }
+    } catch (e) {
+        console.warn('Live NETCONF status check failed, using cached value:', e);
+    }
+
+    hideLoading();
+
+    // Step 2: If live state differs from cached DB value, sync the badge and DB silently
+    if (liveState !== currentState) {
+        // Update badge in the table row without a full reload
+        const badgeEl = document.querySelector(
+            `span[onclick*="toggleNetconf('${ip}'"]`
+        );
+        if (badgeEl) {
+            badgeEl.textContent = liveState;
+            badgeEl.className = `badge ${liveState === 'Enabled' ? 'badge-success' : 'badge-warning'}`;
+            // Update the onclick to use the corrected current state
+            badgeEl.setAttribute('onclick', `toggleNetconf('${ip}', '${liveState}')`);
+        }
+
+        // Persist the corrected state to the DB silently
+        fetch('/api/netconf/sync-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: ip, netconf_state: liveState })
+        }).catch(e => console.warn('Failed to sync NETCONF state to DB:', e));
+    }
+
+    // Step 3: Confirm with the user using the live state
+    const willEnable = liveState !== 'Enabled';
+    const action = willEnable ? 'enable' : 'disable';
+    const confirmed = await showConfirmModal(
+        `NETCONF is currently ${liveState} on ${ip}. Do you want to ${action} it?`
+    );
+    if (!confirmed) return;
+
+    // Step 4: Perform the toggle
+    showLoading(`${willEnable ? 'Enabling' : 'Disabling'} NETCONF on ${ip}...`);
 
     try {
         const response = await fetch('/api/netconf/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip_list: [ip], action: action })
+            body: JSON.stringify({ ip_list: [ip], action: 'toggle' })
         });
 
         const data = await response.json();
-        alert(`NETCONF ${action}d successfully`);
+        hideLoading();
+        showNotification('NETCONF Updated', `NETCONF ${action}d on ${ip}`, '✅');
         loadInventory();
     } catch (error) {
-        alert('Error toggling NETCONF: ' + error.message);
+        hideLoading();
+        showNotification('Error', `Error toggling NETCONF: ${error.message}`, '❌');
     }
 }
+
 
 async function clearInventory(event) {
     // Prevent any default button behavior
@@ -703,7 +864,7 @@ async function clearInventory(event) {
 // Upgrade Scheduler Logic
 let stagedDevices = [];
 
-function stageSelectedDevices() {
+async function stageSelectedDevices() {
     const selectedIPs = getSelectedDevices();
     if (selectedIPs.length === 0) {
         showNotification('No Selection', 'Please select at least one device to stage for upgrade', '⚠️');
@@ -717,38 +878,72 @@ function stageSelectedDevices() {
     // Actually, simplest is to grab from DOM or wait for fetch.
     // Let's fetch inventory again to be safe and get full objects.
 
-    fetch('/api/inventory')
-        .then(response => response.json())
-        .then(data => {
-            const devicesToStage = data.devices.filter(d => selectedIPs.includes(d.ip_address));
+    const invResponse = await fetch('/api/inventory').catch(err => { console.error('Error fetching inventory:', err); return null; });
+    if (!invResponse) return;
+    const data = await invResponse.json();
+    const devicesToStage = data.devices.filter(d => selectedIPs.includes(d.ip_address));
 
-            // Add to stagedDevices, avoiding duplicates
-            let addedCount = 0;
-            devicesToStage.forEach(device => {
-                if (!stagedDevices.find(d => d.ip_address === device.ip_address)) {
-                    // Enrich with default schedule info
-                    device.scheduleTime = '';
-                    // device.timezone  removed, using global
-                    stagedDevices.push(device);
-                    addedCount++;
-                }
-            });
+    // Add to stagedDevices, checking prechecks first, avoiding duplicates
+    let addedCount = 0;
+    let blockedCount = 0;
+    for (const device of devicesToStage) {
+        if (stagedDevices.find(d => d.ip_address === device.ip_address)) {
+            continue; // already staged
+        }
 
-            if (addedCount > 0) {
-                renderStagedDevices();
-                // We need to 'hide' them from the main table. 
-                // The requirements said "completely remove them from the Device table".
-                // Since loadInventory refills the table, we need to filter them out there too.
-                loadInventory();
+        // Check for any FAIL prechecks before staging, and require prechecks to have been run
+        let prechecksFetched = false;
+        try {
+            const pchkResp = await fetch(`/api/prechecks/${device.ip_address}`);
+            const pchkData = await pchkResp.json();
+            const checks = pchkData.checks || [];
 
-                // Show the scheduler section
-                document.getElementById('upgradeScheduler').style.display = 'block';
-                showNotification('Staged', `${addedCount} device(s) moved to Upgrade Scheduler`, '📋');
-            } else {
-                showNotification('Info', 'Selected devices are already staged', 'ℹ️');
+            // No prechecks run yet — block staging
+            if (checks.length === 0) {
+                showNotification(
+                    `⚠️ Prechecks Required — ${device.ip_address}`,
+                    'Prechecks have not been run for this device. Run Prechecks before staging for upgrade.',
+                    '🔒'
+                );
+                blockedCount++;
+                continue;
             }
-        })
-        .catch(err => console.error('Error staging devices:', err));
+
+            prechecksFetched = true;
+            const failedChecks = checks.filter(c => c.result === 'FAIL');
+            if (failedChecks.length > 0) {
+                const failLines = failedChecks.map(f => `• ${f.check_name}: ${f.message}`).join('\n');
+                showPrecheckFailModal(device.ip_address, failLines);
+                blockedCount++;
+                continue; // skip this device
+            }
+        } catch (e) {
+            // Fetch error — treat same as no prechecks run
+            console.warn(`Could not fetch prechecks for ${device.ip_address}:`, e);
+            showNotification(
+                `⚠️ Prechecks Required — ${device.ip_address}`,
+                'Could not verify prechecks for this device. Run Prechecks before staging for upgrade.',
+                '🔒'
+            );
+            blockedCount++;
+            continue;
+        }
+
+        // Enrich with default schedule info and stage
+        device.scheduleTime = '';
+        stagedDevices.push(device);
+        addedCount++;
+    }
+
+    if (addedCount > 0) {
+        renderStagedDevices();
+        loadInventory();
+        document.getElementById('upgradeScheduler').style.display = 'block';
+        const blockedNote = blockedCount > 0 ? ` (${blockedCount} blocked due to failed/missing prechecks)` : '';
+        showNotification('Staged', `${addedCount} device(s) moved to Upgrade Scheduler${blockedNote}`, '📋');
+    } else if (blockedCount === 0) {
+        showNotification('Info', 'Selected devices are already staged', 'ℹ️');
+    }
 }
 
 function renderStagedDevices() {
@@ -859,6 +1054,20 @@ async function runStagedPrechecks() {
         return;
     }
 
+    // Step 1: Re-discover to get fresh device data before running checks
+    showLoading(`Re-discovering ${selectedIPs.length} staged device(s) before prechecks...`);
+    try {
+        await fetch('/api/rediscover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip_list: selectedIPs })
+        });
+    } catch (e) {
+        console.warn('Rediscovery failed before staged prechecks:', e);
+        showNotification('Warning', 'Re-discovery failed — proceeding with prechecks using existing device data.', '⚠️');
+    }
+
+    // Step 2: Run prechecks
     showLoading(`Running prechecks for ${selectedIPs.length} staged device(s)...`);
 
     try {
@@ -873,11 +1082,10 @@ async function runStagedPrechecks() {
 
         if (data.success) {
             showNotification('Prechecks Complete', 'Prechecks completed. Updating status...', '✅');
-            // We need to refresh the status of staged devices
             await refreshStagedDevicesStatus();
         } else {
             showNotification('Prechecks Failed', data.message || 'An error occurred', '❌');
-            await refreshStagedDevicesStatus(); // Update anyway in case some finished
+            await refreshStagedDevicesStatus();
         }
     } catch (error) {
         hideLoading();
@@ -995,8 +1203,15 @@ async function executeUpgradeBatch(devices) {
                 successCount++;
             } else {
                 const errorData = await response.json();
-                console.error(`Failed to schedule ${device.ip_address}:`, errorData);
-                showNotification('Error', `Failed ${device.ip_address}: ${errorData.error || 'Unknown error'}`, '❌');
+                if (response.status === 400 && errorData.failed_checks) {
+                    // Build readable list of failed prechecks
+                    const failLines = errorData.failed_checks
+                        .map(f => `• ${f.check}: ${f.reason}`)
+                        .join('\n');
+                    showPrecheckFailModal(device.ip_address, failLines);
+                } else {
+                    showNotification('Error', `Failed ${device.ip_address}: ${errorData.error || 'Unknown error'}`, '❌');
+                }
                 failCount++;
             }
         } catch (e) {
@@ -1215,6 +1430,18 @@ async function runPreChecks() {
         return;
     }
 
+    // Step 1: Re-discover to refresh device data first
+    try {
+        await fetch('/api/rediscover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip_list: [deviceIP] })
+        });
+    } catch (e) {
+        console.warn('Rediscovery failed before precheck:', e);
+    }
+
+    // Step 2: Run precheck
     try {
         const response = await fetch('/api/precheck', {
             method: 'POST',
@@ -1286,6 +1513,11 @@ async function scheduleUpgrade() {
         if (response.ok) {
             alert(`Upgrade job created! Job ID: ${data.job_id}`);
             loadJobs();
+        } else if (response.status === 400 && data.failed_checks) {
+            const failLines = data.failed_checks
+                .map(f => `• ${f.check}: ${f.reason}`)
+                .join('\n');
+            showPrecheckFailModal(deviceIP, failLines);
         } else {
             alert('Error: ' + data.error);
         }
@@ -1414,8 +1646,18 @@ async function saveCredentials() {
         return;
     }
 
+    // Resolve which HTTP server IP to save
+    const ipSelect = document.getElementById('httpServerIPSelect');
+    const ipCustom = document.getElementById('httpServerIPCustom');
+    let httpIp = '';
+    if (ipSelect) {
+        httpIp = ipSelect.value === '__custom__'
+            ? (ipCustom ? ipCustom.value.trim() : '')
+            : ipSelect.value;
+    }
+
     try {
-        const response = await fetch('/api/settings/credentials', {
+        const credResponse = await fetch('/api/settings/credentials', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1426,18 +1668,27 @@ async function saveCredentials() {
             })
         });
 
-        const data = await response.json();
+        const credData = await credResponse.json();
 
-        if (response.ok) {
-            showStatus('settingsStatus', '✅ Credentials saved successfully', 'success');
-            // Clear password fields after saving
+        // Also save HTTP server IP if one was selected
+        if (httpIp) {
+            await fetch('/api/settings/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ http_server_ip: httpIp })
+            });
+        }
+
+        if (credResponse.ok) {
+            const ipNote = httpIp ? ` | HTTP IP: ${httpIp}` : '';
+            showStatus('settingsStatus', `✅ Settings saved successfully${ipNote}`, 'success');
             document.getElementById('password').value = '';
             document.getElementById('enablePassword').value = '';
         } else {
-            showStatus('settingsStatus', `❌ Error: ${data.error}`, 'error');
+            showStatus('settingsStatus', `❌ Error: ${credData.error}`, 'error');
         }
     } catch (error) {
-        showStatus('settingsStatus', `❌ Error saving credentials: ${error.message}`, 'error');
+        showStatus('settingsStatus', `❌ Error saving settings: ${error.message}`, 'error');
     }
 }
 

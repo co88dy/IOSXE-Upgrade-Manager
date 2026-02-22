@@ -5,10 +5,11 @@ Allows different parts of the application to broadcast messages to the frontend.
 
 import json
 from typing import Dict, List, Any
+from collections import deque
 
-# Global event queue
+# Global event queue (capped to prevent unbounded memory growth)
 # Stores dictionaries: {'job_id': str, 'message': str, 'timestamp': str}
-event_queue: List[Dict[str, Any]] = []
+event_queue: deque = deque(maxlen=10000)
 
 def emit_job_log(job_id: str, message: str):
     """
@@ -28,4 +29,4 @@ def get_events(start_index: int = 0) -> List[Dict[str, Any]]:
     """
     if start_index >= len(event_queue):
         return []
-    return event_queue[start_index:]
+    return list(event_queue)[start_index:]

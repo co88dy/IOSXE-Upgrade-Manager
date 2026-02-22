@@ -154,73 +154,67 @@ class PreCheckEngine:
     
     def _check_boot_variables(self, device_role: str):
         """Check boot system configuration for Install Mode"""
-        boot_info = None
-        
+        boot_var_value = None
+
         # Try NETCONF first
         try:
             netconf = NetconfClient(self.ip_address, self.netconf_port, self.username, self.password)
             if netconf.connect():
                 boot_info = netconf.get_boot_variables()
+                if boot_info:
+                    boot_var_value = boot_info.get('boot_system', '')
                 netconf.disconnect()
         except Exception as e:
             print(f"NETCONF boot check failed: {e}")
 
-        # Check if NETCONF retrieved valid data
-        if boot_info:
-            boot_system = boot_info.get('boot_system', '')
-            
-            # For Install Mode, boot should point to packages.conf
-            if 'packages.conf' in str(boot_system):
-                self.results.append({
-                    'check_name': 'Boot Variable Integrity',
-                    'result': 'PASS',
-                    'message': 'Boot system correctly points to packages.conf (Install Mode)'
-                })
-            else:
-                self.results.append({
-                    'check_name': 'Boot Variable Integrity',
-                    'result': 'WARN',
-                    'message': f'Boot system: {boot_system}. Verify Install Mode configuration.'
-                })
-        else:
-            # Fallback to SSH
+        # Fallback to SSH if NETCONF didn't return a value
+        if not boot_var_value:
             try:
                 ssh = SSHClient(self.ip_address, self.username, self.password, self.enable_password)
                 if ssh.connect():
-                    boot_var = ssh.get_boot_variables()
+                    boot_var_value = ssh.get_boot_variables()
                     ssh.disconnect()
-                    
-                    if boot_var:
-                        if 'packages.conf' in str(boot_var):
-                            self.results.append({
-                                'check_name': 'Boot Variable Integrity',
-                                'result': 'PASS',
-                                'message': 'Boot system correctly points to packages.conf (Install Mode) [via SSH]'
-                            })
-                        else:
-                            self.results.append({
-                                'check_name': 'Boot Variable Integrity',
-                                'result': 'WARN',
-                                'message': f'Boot system: {boot_var}. Verify Install Mode configuration. [via SSH]'
-                            })
-                    else:
-                        self.results.append({
-                            'check_name': 'Boot Variable Integrity',
-                            'result': 'WARN',
-                            'message': 'Could not retrieve boot variables via NETCONF or SSH'
-                        })
-                else:
-                    self.results.append({
-                        'check_name': 'Boot Variable Integrity',
-                        'result': 'WARN',
-                        'message': 'NETCONF and SSH unavailable for boot check'
-                    })
             except Exception as e:
+                print(f"SSH boot check failed: {e}")
+
+        # Evaluate the boot variable
+        if boot_var_value:
+            bv = str(boot_var_value).strip()
+
+            # Bundle mode detection — .bin file set as boot variable
+            if '.bin' in bv.lower():
                 self.results.append({
                     'check_name': 'Boot Variable Integrity',
-                    'result': 'ERROR',
-                    'message': f'Error checking boot variables: {str(e)}'
+                    'result': 'FAIL',
+                    'message': (
+                        f"Device is in Bundle Mode (boot variable: {bv}). "
+                        "This program only supports Install Mode. "
+                        "Set boot variable to 'flash:packages.conf' or 'bootflash:packages.conf' before upgrading."
+                    )
                 })
+            # Valid Install Mode — must point to packages.conf on flash or bootflash
+            elif 'packages.conf' in bv and any(bv.startswith(fs) for fs in ('flash:', 'bootflash:')):
+                self.results.append({
+                    'check_name': 'Boot Variable Integrity',
+                    'result': 'PASS',
+                    'message': f"Boot variable correctly set for Install Mode ({bv})"
+                })
+            # Packages.conf present but wrong filesystem prefix or path
+            else:
+                self.results.append({
+                    'check_name': 'Boot Variable Integrity',
+                    'result': 'FAIL',
+                    'message': (
+                        f"Boot variable not set correctly for Install Mode (current: {bv}). "
+                        "Set to 'flash:packages.conf' or 'bootflash:packages.conf'."
+                    )
+                })
+        else:
+            self.results.append({
+                'check_name': 'Boot Variable Integrity',
+                'result': 'WARN',
+                'message': 'Could not retrieve boot variable via NETCONF or SSH — manual verification required.'
+            })
     
     def _check_disk_space(self, device_role: str, filesystem: str, target_image_size_mb: float = 0):
         """Check disk space thresholds"""
@@ -264,39 +258,45 @@ class PreCheckEngine:
         if netconf_success and fs_info_list:
             all_pass = True
             messages = []
-            for fs_info in fs_info_list:
-                 available_gb = fs_info['available_gb']
-                 # For stack members, we might want member number, but simple FS name is ok
-                 fs_name = fs_info['filesystem']
-                 
-                 if available_gb < 1:
-                    all_pass = False
-                    messages.append(f"{fs_name}: {available_gb}GB (ERROR: <1GB)")
-                 elif available_gb < 2:
-                    messages.append(f"{fs_name}: {available_gb}GB (WARNING: <2GB)")
-                 else:
-                    messages.append(f"{fs_name}: {available_gb}GB (OK)")
+            valid_netconf_data = False
             
-            # Consolidate results
-            if not all_pass:
-                 self.results.append({
-                    'check_name': 'Disk Space Thresholds',
-                    'result': 'FAIL',
-                    'message': '; '.join(messages)
-                })
-            elif any('WARNING' in msg for msg in messages):
-                self.results.append({
-                    'check_name': 'Disk Space Thresholds',
-                    'result': 'WARN',
-                    'message': '; '.join(messages)
-                })
-            else:
-                 self.results.append({
-                    'check_name': 'Disk Space Thresholds',
-                    'result': 'PASS',
-                    'message': '; '.join(messages)
-                })
-            return
+            for fs_info in fs_info_list:
+                 available_gb = fs_info.get('available_gb', 0)
+                 fs_name = fs_info.get('filesystem', filesystem)
+                 
+                 # If we actually got valid capacity data (not empty C8000V/CSR1000V partition)
+                 if available_gb and available_gb > 0:
+                     valid_netconf_data = True
+                     if available_gb < 1:
+                        all_pass = False
+                        messages.append(f"{fs_name}: {available_gb}GB (ERROR: <1GB)")
+                     elif available_gb < 2:
+                        messages.append(f"{fs_name}: {available_gb}GB (WARNING: <2GB)")
+                     else:
+                        messages.append(f"{fs_name}: {available_gb}GB (OK)")
+            
+            # Only complete the NETCONF check if we actually found tangible capacity numbers
+            if valid_netconf_data:
+                # Consolidate results
+                if not all_pass:
+                     self.results.append({
+                        'check_name': 'Disk Space Thresholds',
+                        'result': 'FAIL',
+                        'message': '; '.join(messages)
+                    })
+                elif any('WARNING' in msg for msg in messages):
+                    self.results.append({
+                        'check_name': 'Disk Space Thresholds',
+                        'result': 'WARN',
+                        'message': '; '.join(messages)
+                    })
+                else:
+                     self.results.append({
+                        'check_name': 'Disk Space Thresholds',
+                        'result': 'PASS',
+                        'message': '; '.join(messages)
+                    })
+                return
 
         # Fallback to SSH if NETCONF failed or returned no data
         try:
@@ -481,13 +481,13 @@ class PreCheckEngine:
                     self.results.append({
                         'check_name': 'Commit Status Check',
                         'result': 'WARN',
-                        'message': '⚠️ Current image is ACTIVATED but NOT COMMITTED. An auto-abort timer may be running.'
+                        'message': 'Current image is ACTIVATED but NOT COMMITTED.'
                     })
                 elif committed_found:
                     self.results.append({
                         'check_name': 'Commit Status Check',
                         'result': 'PASS',
-                        'message': '✅ Current image is committed'
+                        'message': 'Current image is committed'
                     })
                 else:
                     # Could be legacy bundle mode or parsing failed

@@ -7,8 +7,6 @@ from app.utils.ssh_client import SSHClient
 from app.utils.job_manager import JobManager
 from app.database.models import Database
 import json
-import threading
-import time
 
 install_bp = Blueprint('install', __name__)
 
@@ -45,13 +43,13 @@ def install_remove_inactive():
         job_id = job_manager.start_job(ip, 'INSTALL_REMOVE_INACTIVE')
         
         if job_id:
-            # Start background thread
-            thread = threading.Thread(
-                target=_run_install_remove_inactive_thread,
+            # Start background job
+            from flask import current_app
+            current_app.config['scheduler'].add_job(
+                id=f"install_remove_{job_id}",
+                func=_run_install_remove_inactive_thread,
                 args=(job_id, ip, username, password, enable_password, config['database']['path'], logs_path)
             )
-            thread.daemon = True
-            thread.start()
             
             results.append({
                 'ip': ip,

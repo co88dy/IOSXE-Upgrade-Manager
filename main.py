@@ -17,6 +17,7 @@ from app.blueprints.models import models_bp
 from app.database.models import Database
 import json
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Load configuration
 with open('config.json', 'r') as f:
@@ -26,6 +27,9 @@ with open('config.json', 'r') as f:
 app = Flask(__name__, 
             template_folder='app/templates',
             static_folder='app/static')
+# Initialize Scheduler
+scheduler = BackgroundScheduler()
+app.config['scheduler'] = scheduler
 app.config['SECRET_KEY'] = 'ios-xe-upgrade-manager-secret-key'
 # No file size limit - IOS-XE images can be large
 app.config['MAX_CONTENT_LENGTH'] = None
@@ -70,89 +74,59 @@ def health():
     return {'status': 'healthy', 'service': 'IOS-XE Upgrade Manager'}
 
 
-def run_scheduler():
-    """Background scheduler to check for pending jobs"""
-    import time
-    from datetime import datetime
+def check_scheduled_jobs():
+    """Background task to check for pending jobs"""
+    from datetime import datetime, timedelta
+    import zoneinfo
     from app.database.models import JobsModel, InventoryModel
-    # Import here to avoid circular import during app initialization
     from app.blueprints.upgrade import execute_upgrade
     
-    print("Scheduler thread started...")
+    # Jobs older than this threshold will be marked as Missed instead of executed
+    STALE_THRESHOLD = timedelta(hours=1)
     
-    while True:
-        try:
-            # Check every 30 seconds
-            time.sleep(30)
+    try:
+        scheduled_jobs = JobsModel.get_scheduled_jobs(db)
+        now_utc = datetime.now(zoneinfo.ZoneInfo('UTC'))
+        
+        for job in scheduled_jobs:
+            job_id = job['job_id']
+            target_ip = job['target_ip']
+            schedule_time_str = job['schedule_time']
             
-            # Simple query - would be better in model
-            # For now, get all scheduled jobs and filter in python
-            # In a real app, use a proper DB query
-            connection = db.get_connection()
-            cursor = connection.cursor()
-            cursor.execute("SELECT job_id, target_ip, target_version, schedule_time, log_file_path FROM jobs WHERE status = 'Scheduled'")
-            scheduled_jobs = cursor.fetchall()
-            connection.close()
-            
-            now = datetime.now()
-            
-            for job in scheduled_jobs:
-                job_id = job['job_id']
-                target_ip = job['target_ip']
-                schedule_time_str = job['schedule_time']
-                
-                if schedule_time_str:
-                    try:
-                        schedule_time = datetime.fromisoformat(schedule_time_str)
-                        # Ensure offset-naive/aware compatibility
-                        if schedule_time.tzinfo is not None and now.tzinfo is None:
-                            # Convert now to aware or schedule to naive
-                            now_aware = now.astimezone() # Local time with timezone
-                            # Actually, simpler to just compare timestamps or ensure both are one way
-                            # Let's try to match them. 
-                            # If schedule time is aware, use aware now.
-                            check_time = now.astimezone() if schedule_time.tzinfo else now
-                        elif schedule_time.tzinfo is None and now.tzinfo is not None:
-                             check_time = now.replace(tzinfo=None)
-                        else:
-                             check_time = now
-
-                        print(f"Checking Job {job_id}: Scheduled {schedule_time} <= Now {check_time}?")
-
-                        if schedule_time <= check_time:
-                            print(f"Triggering scheduled upgrade for {target_ip} (Job {job_id})")
-                            
-                            # Get device role for execute_upgrade
-                            device = InventoryModel.get_device(db, target_ip)
-                            device_role = device['device_role'] if device else 'Access'
-
-                            # We need image_filename. It's not in jobs table usually, 
-                            # but we need it for execute_upgrade. 
-                            # Phase 7 refactor might have stored it? 
-                            # upgrade.py schedule_upgrade received it. 
-                            # We should probably store it in the job or infer it?
-                            # For now, let's assume target_version IS the filename or look it up from Inventory target_image
-                            # The frontend sends 'image_filename' as 'target_image' in payload.
-                            # Inventory has 'target_image'. USE THAT.
-                            image_filename = device['target_image'] if device else ''
-                            
-                            if image_filename:
-                                log_file_path = job['log_file_path'] if 'log_file_path' in job.keys() else None
-                                
-                                thread = threading.Thread(
-                                    target=execute_upgrade,
-                                    args=(job_id, target_ip, image_filename, device_role, log_file_path)
-                                )
-                                thread.start()
-                            else:
-                                print(f"Error: No target image found for scheduled job {job_id}")
-                                JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())
-                                
-                    except ValueError:
-                        print(f"Invalid date format for job {job_id}")
+            if schedule_time_str:
+                try:
+                    schedule_time = datetime.fromisoformat(schedule_time_str)
+                    
+                    if schedule_time <= now_utc:
+                        # Check if the job is stale (past the threshold)
+                        if (now_utc - schedule_time) > STALE_THRESHOLD:
+                            print(f"Marking stale job {job_id} for {target_ip} as Missed "
+                                  f"(scheduled for {schedule_time_str}, now {now_utc.isoformat()})")
+                            JobsModel.update_job_status(db, job_id, 'Missed', datetime.now())
+                            continue
                         
-        except Exception as e:
-            print(f"Scheduler error: {e}")
+                        print(f"Triggering scheduled upgrade for {target_ip} (Job {job_id})")
+                        
+                        device = InventoryModel.get_device(db, target_ip)
+                        device_role = device['device_role'] if device else 'Access'
+                        image_filename = device['target_image'] if device else ''
+                        
+                        if image_filename:
+                            log_file_path = job.get('log_file_path')
+                            app.config['scheduler'].add_job(
+                                id=f"upgrade_{job_id}",
+                                func=execute_upgrade,
+                                args=(job_id, target_ip, image_filename, device_role, log_file_path)
+                            )
+                        else:
+                            print(f"Error: No target image found for scheduled job {job_id}")
+                            JobsModel.update_job_status(db, job_id, 'Failed', datetime.now())
+                            
+                except ValueError:
+                    print(f"Invalid date format for job {job_id}")
+                    
+    except Exception as e:
+        print(f"Scheduler error: {e}")
 
 
 if __name__ == '__main__':
@@ -160,10 +134,9 @@ if __name__ == '__main__':
     port = config['flask']['port']
     debug = config['flask']['debug']
     
-    # Start scheduler thread
-    import threading
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
+    # Start scheduler
+    scheduler.add_job(func=check_scheduled_jobs, trigger="interval", seconds=30)
+    scheduler.start()
     
     print(f"""
     ╔═══════════════════════════════════════════════════════════╗
@@ -175,4 +148,7 @@ if __name__ == '__main__':
     ╚═══════════════════════════════════════════════════════════╝
     """)
     
-    app.run(host=host, port=port, debug=debug, threaded=True)
+    try:
+        app.run(host=host, port=port, debug=debug, threaded=True, use_reloader=False)
+    except (KeyboardInterrupt, SystemExit):
+        scheduler.shutdown()

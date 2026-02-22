@@ -4,7 +4,8 @@ Repository blueprint for IOS-XE image management
 
 from flask import Blueprint, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from app.database.models import Database, RepositoryModel
+from app.database.models import RepositoryModel
+from app.extensions import db, get_config
 import os
 import hashlib
 import json
@@ -12,10 +13,7 @@ import json
 repository_bp = Blueprint('repository', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 REPO_PATH = config['repository']['path']
 
 # Ensure repository directory exists

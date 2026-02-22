@@ -42,6 +42,8 @@
                 Reports</li>
             <li><a href="/reports/prechecks" class="nav-link" onclick="navigateTo(event, 'reports')">📋 Prechecks
                     Report</a></li>
+            <li><a href="/reports/detailed" class="nav-link" onclick="navigateTo(event, 'report')">📄 Detailed Device
+                    Report</a></li>
         </ul>
     </nav>
     <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
@@ -80,13 +82,26 @@
                     <select id="globalTimezone"
                         style="background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 4px;">
                         <option value="UTC">UTC</option>
-                        <option value="America/Chicago">Central Time (US)</option>
                         <option value="America/New_York">Eastern Time (US)</option>
-                        <option value="America/Los_Angeles">Pacific Time (US)</option>
+                        <option value="America/Chicago">Central Time (US)</option>
                         <option value="America/Denver">Mountain Time (US)</option>
-                        <option value="Europe/London">London (GMT)</option>
+                        <option value="America/Phoenix">Arizona Time (US — No DST)</option>
+                        <option value="America/Los_Angeles">Pacific Time (US)</option>
+                        <option value="Pacific/Honolulu">Hawaii Time (US — No DST)</option>
                         <!-- Add more as needed -->
                     </select>
+                </div>
+                <div class="input-group">
+                    <label for="httpServerIPSelect">Repository HTTP Server IP</label>
+                    <select id="httpServerIPSelect"
+                        style="background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 4px;"
+                        onchange="handleHttpIPSelectChange()">
+                        <option value="">Loading detected IPs...</option>
+                        <option value="__custom__">Enter custom IP...</option>
+                    </select>
+                    <input type="text" id="httpServerIPCustom" placeholder="e.g., 10.0.0.50"
+                        style="display: none; margin-top: 0.5rem;" oninput="this.value = this.value.trim()" />
+
                 </div>
             </div>
             <div id="settingsStatus" style="margin-top: 10px; font-weight: 500;"></div>
@@ -143,7 +158,6 @@
                             </th>
                             <th>IP Address</th>
                             <th>Hostname</th>
-                            <th>Serial Number</th>
                             <th>Model</th>
                             <th>Current Version</th>
                             <th>Target Image</th>
@@ -171,8 +185,25 @@
         <!-- Upgrade Scheduler Section -->
         <div id="upgradeScheduler" class="card fade-in"
             style="display: none; margin-top: 2rem; border-left: 4px solid var(--accent-primary); position: relative; z-index: 5;">
-            <div class="card-header">
+            <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;">
                 <h2 class="card-title">📅 Upgrade Scheduler</h2>
+                <div id="schedulerClock" style="
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-end;
+                    gap: 2px;
+                    font-family: 'Courier New', monospace;
+                    background: var(--bg-tertiary, #1e1e2e);
+                    border: 1px solid var(--border-color, #313244);
+                    border-radius: 8px;
+                    padding: 6px 14px;
+                    min-width: 190px;
+                ">
+                    <span id="schedulerClockTime"
+                        style="font-size: 1.15em; font-weight: 700; color: var(--accent-primary, #89b4fa); letter-spacing: 1px;">--:--:--</span>
+                    <span id="schedulerClockTz"
+                        style="font-size: 0.72em; color: var(--text-muted, #6c7086); letter-spacing: 0.5px;">UTC</span>
+                </div>
             </div>
             <div class="card-body">
                 <div style="margin-bottom: 1rem; display: flex; justify-content: flex-start;">

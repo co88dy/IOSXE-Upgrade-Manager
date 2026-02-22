@@ -42,6 +42,45 @@ paramiko.Transport._preferred_keys = (
 )
 
 
+def _extract_boot_var_string(d: dict) -> str:
+    """
+    Recursively extract a clean boot-variable string from the xmltodict-parsed
+    Cisco-IOS-XE-native boot/system YANG node.
+
+    Handles two common structures:
+      Install mode: {'flash': 'packages.conf'} -> 'flash:packages.conf'
+      Bundle mode : {'bootfile': {'filename-list': {'filename': 'bootflash:...bin'}}}
+                    -> 'bootflash:...bin'
+
+    If a leaf string already contains ':' (i.e. it is already 'filesystem:path'),
+    it is returned as-is without adding another prefix.
+    """
+    parts: List[str] = []
+    for k, v in d.items():
+        if k.startswith('@'):
+            continue
+        if isinstance(v, dict):
+            sub = _extract_boot_var_string(v)
+            if sub:
+                # If sub already looks like a full path, return it directly
+                if ':' in sub or '/' in sub:
+                    parts.append(sub)
+                else:
+                    parts.append(f"{k}:{sub}")
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    parts.append(_extract_boot_var_string(item))
+                elif isinstance(item, str) and item:
+                    parts.append(item)
+        elif isinstance(v, str) and v:
+            # Already a full path (contains ':') – use as-is, else prefix with filesystem key
+            if ':' in v or '/' in v:
+                parts.append(v)
+            else:
+                parts.append(f"{k}:{v}")
+    return ','.join(p for p in parts if p)
+
 class NetconfClient:
     """NETCONF operations for IOS-XE devices"""
     
@@ -91,23 +130,24 @@ class NetconfClient:
         try:
             # NETCONF filter for device hardware
             filter_xml = '''
-            <filter>
-                <device-hardware-data xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-device-hardware-oper">
-                    <device-hardware>
-                        <device-inventory/>
-                    </device-hardware>
-                </device-hardware-data>
-            </filter>
+            <device-hardware-data xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-device-hardware-oper">
+                <device-hardware>
+                    <device-inventory/>
+                </device-hardware>
+            </device-hardware-data>
             '''
             
-            response = self.connection.get(filter_xml)
+            response = self.connection.get(filter=('subtree', filter_xml))
             data = xmltodict.parse(response.xml)
             
-            # Parse the response
-            hardware_data = data.get('rpc-reply', {}).get('data', {}).get('device-hardware-data', {})
-            inventory = hardware_data.get('device-hardware', {}).get('device-inventory', [])
+            # Parse the response safely
+            rpc_reply = data.get('rpc-reply') or {}
+            data_node = rpc_reply.get('data') or {}
+            hw_data = data_node.get('device-hardware-data') or {}
+            device_hw = hw_data.get('device-hardware') or {}
+            inventory = device_hw.get('device-inventory') or []
             
-            # Extract chassis information
+            # If it's a single item, make it a list for consistent processing
             if isinstance(inventory, dict):
                 inventory = [inventory]
             
@@ -121,7 +161,8 @@ class NetconfClient:
                 return {
                     'serial_number': chassis_info.get('serial-number', 'Unknown'),
                     'part_number': chassis_info.get('part-number', 'Unknown'),
-                    'hw_description': chassis_info.get('hw-description', 'Unknown')
+                    'hw_description': chassis_info.get('hw-description', 'Unknown'),
+                    'sw_version': chassis_info.get('version', 'Unknown')
                 }
             
             return None
@@ -139,18 +180,19 @@ class NetconfClient:
         try:
             # Get hostname and version using native YANG models
             filter_xml = '''
-            <filter>
-                <native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
-                    <hostname/>
-                    <version/>
-                </native>
-            </filter>
+            <native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
+                <hostname/>
+                <version/>
+            </native>
             '''
             
-            response = self.connection.get_config(source='running', filter=filter_xml)
+            response = self.connection.get_config(source='running', filter=('subtree', filter_xml))
             data = xmltodict.parse(response.xml)
             
-            native = data.get('rpc-reply', {}).get('data', {}).get('native', {})
+            # Parse safely
+            rpc_reply = data.get('rpc-reply') or {}
+            data_node = rpc_reply.get('data') or {}
+            native = data_node.get('native') or {}
             
             return {
                 'hostname': native.get('hostname', 'Unknown'),
@@ -171,21 +213,24 @@ class NetconfClient:
         try:
             # Query filesystem data
             filter_xml = f'''
-            <filter>
-                <cisco-platform-software xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-platform-software-oper">
-                    <q-filesystem>
-                        <partitions>
-                            <name>{filesystem}</name>
-                        </partitions>
-                    </q-filesystem>
-                </cisco-platform-software>
-            </filter>
+            <cisco-platform-software xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-platform-software-oper">
+                <q-filesystem>
+                    <partitions>
+                        <name>{filesystem}</name>
+                    </partitions>
+                </q-filesystem>
+            </cisco-platform-software>
             '''
             
-            response = self.connection.get(filter_xml)
+            response = self.connection.get(filter=('subtree', filter_xml))
             data = xmltodict.parse(response.xml)
             
-            partitions = data.get('rpc-reply', {}).get('data', {}).get('cisco-platform-software', {}).get('q-filesystem', {}).get('partitions', {})
+            # Parse safely
+            rpc_reply = data.get('rpc-reply') or {}
+            data_node = rpc_reply.get('data') or {}
+            platform = data_node.get('cisco-platform-software') or {}
+            q_fs = platform.get('q-filesystem') or {}
+            partitions = q_fs.get('partitions') or {}
             
             if partitions:
                 available_bytes = int(partitions.get('available', 0))
@@ -213,19 +258,21 @@ class NetconfClient:
         
         try:
             filter_xml = '''
-            <filter>
-                <stack xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-switch">
-                    <switch/>
-                </stack>
-            </filter>
+            <stack xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-switch">
+                <switch/>
+            </stack>
             '''
             
-            response = self.connection.get(filter_xml)
+            response = self.connection.get(filter=('subtree', filter_xml))
             data = xmltodict.parse(response.xml)
             
-            stack_data = data.get('rpc-reply', {}).get('data', {}).get('stack', {}).get('switch', [])
+            # Parse safely
+            rpc_reply = data.get('rpc-reply') or {}
+            data_node = rpc_reply.get('data') or {}
+            stack = data_node.get('stack') or {}
+            stack_data = stack.get('switch') or []
             
-            if isinstance(stack_data, dict):
+            if not isinstance(stack_data, list):
                 stack_data = [stack_data]
             
             members = []
@@ -251,22 +298,36 @@ class NetconfClient:
         
         try:
             filter_xml = '''
-            <filter>
-                <native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
-                    <boot>
-                        <system/>
-                    </boot>
-                </native>
-            </filter>
+            <native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native">
+                <boot>
+                    <system/>
+                    <config-register/>
+                </boot>
+            </native>
             '''
             
-            response = self.connection.get_config(source='running', filter=filter_xml)
+            response = self.connection.get_config(source='running', filter=('subtree', filter_xml))
             data = xmltodict.parse(response.xml)
             
-            boot_data = data.get('rpc-reply', {}).get('data', {}).get('native', {}).get('boot', {})
+            # Parse safely
+            rpc_reply = data.get('rpc-reply') or {}
+            data_node = rpc_reply.get('data') or {}
+            native = data_node.get('native') or {}
+            boot_data = native.get('boot') or {}
             
+            # Parse safely — xmltodict may return boot/system as a nested dict on some devices.
+            # Two known structures:
+            #   Packages (install mode): {'flash': 'packages.conf'} or {'bootflash': 'packages.conf'}
+            #   Bundle (bin file):       {'bootfile': {'filename-list': {'filename': 'bootflash:file.bin'}}}
+            raw_boot_system = boot_data.get('system', 'Not configured')
+            if isinstance(raw_boot_system, dict):
+                boot_system_str = _extract_boot_var_string(raw_boot_system)
+            else:
+                boot_system_str = str(raw_boot_system) if raw_boot_system else 'Not configured'
+
             return {
-                'boot_system': boot_data.get('system', 'Not configured')
+                'boot_system': boot_system_str,
+                'config_register': boot_data.get('config-register', 'Unknown')
             }
         except Exception as e:
             print(f"Error getting boot variables: {e}")
@@ -283,7 +344,7 @@ class NetconfClient:
             return 'Switch'
         
         # Router patterns
-        if any(pattern in part_number for pattern in ['ASR', 'ISR', 'C8']):
+        if any(pattern in part_number for pattern in ['ASR', 'ISR', 'C8', 'CSR']):
             return 'Router'
         
         return 'Unknown'

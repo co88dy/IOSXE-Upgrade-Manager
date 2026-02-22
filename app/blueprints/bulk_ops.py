@@ -3,20 +3,17 @@ Bulk operations blueprint for multi-device actions
 """
 
 from flask import Blueprint, request, jsonify
-from app.database.models import Database, InventoryModel, PreChecksModel, RepositoryModel
+from app.database.models import InventoryModel, PreChecksModel, RepositoryModel
 import os
 from app.utils.ssh_client import SSHClient
 from app.utils.job_manager import JobManager
+from app.extensions import db, get_config
 import json
-import threading
 
 bulk_ops_bp = Blueprint('bulk_ops', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 job_manager = JobManager(config['database']['path'], config['logs']['path'])
 
 
@@ -213,22 +210,37 @@ def rediscover_devices():
                         'serial_number': version_info.get('serial_number', 'Unknown'),
                         'device_role': 'Unknown',
                         'current_version': version_info.get('version', 'Unknown'),
-                        'rommon_version': 'N/A',
+                        'rommon_version': version_info.get('rommon_version', 'N/A'),
+                        'config_register': version_info.get('config_register', 'Unknown'),
                         'status': 'Online',
                         'netconf_state': netconf_state,
                         'model': version_info.get('model', 'Unknown'),
                         'boot_variable': boot_var,
                         'free_space_mb': free_space,
-                        # Preserve existing precheck status
+                        'image_file': version_info.get('image_file'),
+                        # Preserve existing precheck and image status
                         'precheck_status': None,
-                        'precheck_details': None
+                        'precheck_details': None,
+                        'target_image': None,
+                        'image_copied': 'No',
+                        'image_verified': 'No',
+                        'is_supported': 'Yes'
                     }
                     
-                    # Get existing precheck status if any
+                    # Merge existing device fields to avoid data loss
                     existing = InventoryModel.get_device(db, ip)
                     if existing:
                         device_data['precheck_status'] = existing.get('precheck_status')
                         device_data['precheck_details'] = existing.get('precheck_details')
+                        device_data['target_image'] = existing.get('target_image')
+                        device_data['image_copied'] = existing.get('image_copied', 'No')
+                        device_data['image_verified'] = existing.get('image_verified', 'No')
+                        device_data['is_supported'] = existing.get('is_supported', 'Yes')
+                        device_data['device_role'] = existing.get('device_role', 'Unknown')
+                        
+                        # Preserve config_register if SSH fallback didn't catch it
+                        if device_data.get('config_register') == 'Unknown':
+                            device_data['config_register'] = existing.get('config_register', 'Unknown')
                     
                     InventoryModel.add_device(db, device_data)
                     results.append({'ip': ip, 'status': 'success'})

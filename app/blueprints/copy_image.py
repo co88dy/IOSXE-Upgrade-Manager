@@ -4,23 +4,22 @@ Spawns individual jobs per device for better tracking and concurrency.
 """
 
 from flask import Blueprint, request, jsonify
-from app.database.models import Database, InventoryModel, JobsModel
+from app.database.models import InventoryModel, JobsModel
 from app.utils.ssh_client import SSHClient
 from app.utils.job_manager import JobManager
 from app.blueprints.verify_image import execute_verify_job
+from app.utils.netconf_client import NetconfClient
+from app.extensions import db, get_config
 import json
-import threading
 import uuid
 import re
+import time
 from datetime import datetime
 
 copy_image_bp = Blueprint('copy_image', __name__)
 
 # Load config
-with open('config.json', 'r') as f:
-    config = json.load(f)
-
-db = Database(config['database']['path'])
+config = get_config()
 job_manager = JobManager(config['database']['path'], config['logs']['path'])
 
 
@@ -80,13 +79,13 @@ def start_copy_job():
             'log_file_path': log_file_path
         })
 
-        # Start Background Thread
-        thread = threading.Thread(
-            target=execute_copy_job,
+        # Start Background Job
+        from flask import current_app
+        current_app.config['scheduler'].add_job(
+            id=f"copy_image_{job_id}",
+            func=execute_copy_job,
             args=(job_id, ip, target_image)
         )
-        thread.daemon = True
-        thread.start()
 
     return jsonify({
         'success': True,
@@ -126,7 +125,11 @@ def execute_copy_job(job_id, ip_address, image_filename):
             return
 
         # Prepare Copy
-        destination_fs = "flash:" # Default, could be improved with discovery data
+        # Determine filesystem based on device role
+        device = InventoryModel.get_device(db, ip_address)
+        device_role = device.get('device_role', 'Access') if device else 'Access'
+        netconf_client = NetconfClient(ip_address, 830, username, password)
+        destination_fs = netconf_client.get_filesystem_for_role(device_role)
         
         # Handle default HTTP port 80 (Docker/standard web server)
         # IOS-XE devices often prefer 'http://ip/file' over 'http://ip:80/file'
@@ -158,7 +161,6 @@ def execute_copy_job(job_id, ip_address, image_filename):
             # Verify file size/integrity check to ensure it's not a 0-byte file
             # (Basic check, full verification is separate)
             job_manager.append_log(job_id, "Verifying file presence...")
-            import time
             time.sleep(2) # Give file system a moment to settle
             if ssh.check_file_exists(destination_fs, image_filename):
                  job_manager.append_log(job_id, "File confirmed present on filesystem.")

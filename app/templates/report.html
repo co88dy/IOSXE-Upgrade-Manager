@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detailed Device Report - IOS-XE Upgrade Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Ensure html2pdf is loaded over CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v={{ range(1, 1000) | random }}"></script>
+    <style>
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .results-table th,
+        .results-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        .results-table th {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            background: var(--bg-hover);
+        }
+
+        .result-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-pass {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
+
+        .status-fail {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+        }
+
+        .status-warn {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
+
+        .status-info {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
+
+        .code-block {
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <button class="hamburger-btn" onclick="toggleMenu()" aria-label="Menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <h1>📄 Detailed Device Report</h1>
+        <p>A comprehensive view of all collected data for discovered devices</p>
+    </div>
+
+    <!-- Navigation Menu -->
+    <nav id="navMenu" class="nav-menu">
+        <div class="nav-header">
+            <h2>Navigation</h2>
+            <button class="close-btn" onclick="toggleMenu()">×</button>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/" class="nav-link">📊 Dashboard</a></li>
+            <li><a href="/repo" class="nav-link">📦 Image Repository</a></li>
+            <li><a href="/models" class="nav-link">📚 Supported Models</a></li>
+            <li class="nav-section-title"
+                style="padding: 1rem 1.5rem 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: bold;">
+                Reports</li>
+            <li><a href="/reports/prechecks" class="nav-link">📋 Prechecks Report</a></li>
+            <li><a href="/reports/detailed" class="nav-link active">📄 Detailed Device Report</a></li>
+        </ul>
+    </nav>
+    <div id="navOverlay" class="nav-overlay" onclick="toggleMenu()"></div>
+
+    <div class="container fade-in">
+        <div class="report-header">
+            <div>
+                <h2 style="margin: 0;">Full Inventory Data</h2>
+                <p id="reportGenerationTime" class="text-muted" style="margin-top: 0.5rem;"></p>
+            </div>
+            <button id="exportPdfBtn" class="btn btn-primary" onclick="generatePdf()">
+                <span>📄</span> Export to PDF
+            </button>
+        </div>
+
+        <div style="overflow-x: auto; margin-bottom: 2rem;">
+            <table class="results-table" id="detailedReportTable">
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>Platform Model</th>
+                        <th>Serial Number</th>
+                        <th>Role</th>
+                        <th>Version</th>
+                        <th>ROMMON</th>
+                        <th>Config Register</th>
+                        <th>Boot Variable</th>
+                        <th>Free Space (MB)</th>
+                        <th>State</th>
+                    </tr>
+                </thead>
+                <tbody id="detailedReportTableBody">
+                    <tr>
+                        <td colspan="11" style="text-align: center; padding: 3rem;">
+                            <div class="spinner" style="display: inline-block; margin-bottom: 1rem;"></div>
+                            <div style="color: var(--text-muted);">Fetching inventory data...</div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modals to Prevent app.js errors -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <h3 class="modal-title" id="confirmMessage">Confirm</h3>
+        </div>
+    </div>
+    <div id="notificationModal" class="modal">
+        <div class="modal-content">
+            <h3 id="notificationTitle">Note</h3>
+            <div id="notificationMessage"></div>
+        </div>
+    </div>
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <p id="loadingMessage"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('reportGenerationTime').innerText = `Generated at: ${new Date().toLocaleString()}`;
+
+            // Fetch inventory data
+            fetch('/api/inventory')
+                .then(res => res.json())
+                .then(data => {
+                    const tbody = document.getElementById('detailedReportTableBody');
+                    tbody.innerHTML = '';
+
+                    if (!data.devices || data.devices.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 2rem;">No devices found.</td></tr>`;
+                        return;
+                    }
+
+                    data.devices.forEach(dev => {
+                        const tr = document.createElement('tr');
+
+                        const statusClass = dev.status === 'Online' ? 'status-pass' : 'status-fail';
+                        const ncClass = dev.netconf_state === 'Enabled' ? 'status-info' : 'status-warn';
+
+                        tr.innerHTML = `
+                        <td style="font-weight: bold;">${dev.hostname || 'Unknown'}</td>
+                        <td>${dev.ip_address}</td>
+                        <td>${dev.model || 'Unknown'}</td>
+                        <td style="font-family: monospace;">${dev.serial_number || 'Unknown'}</td>
+                        <td><span class="result-badge status-info">${dev.device_role || 'Unknown'}</span></td>
+                        <td>${dev.current_version || 'Unknown'}</td>
+                        <td style="font-size: 0.85em;">${dev.rommon_version || 'N/A'}</td>
+                        <td><span class="code-block">${dev.config_register || 'Unknown'}</span></td>
+                        <td style="max-width: 15rem; word-break: break-all; font-size: 0.85em;">${dev.boot_variable || 'Unknown'}</td>
+                        <td>${dev.free_space_mb ? dev.free_space_mb.toLocaleString() : 'N/A'}</td>
+                        <td>
+                            <div style="margin-bottom: 4px;"><span class="result-badge ${statusClass}">${dev.status}</span></div>
+                            <div><span class="result-badge ${ncClass}">NC: ${dev.netconf_state}</span></div>
+                        </td>
+                    `;
+                        tbody.appendChild(tr);
+                    });
+                })
+                .catch(e => {
+                    document.getElementById('detailedReportTableBody').innerHTML = `<tr><td colspan="11" style="text-align: center; color: red;">Error fetching data.</td></tr>`;
+                });
+        });
+
+        function generatePdf() {
+            // Hide the button temporarily for a clean snapshot
+            const btn = document.getElementById('exportPdfBtn');
+            btn.style.display = 'none';
+
+            const element = document.body;
+            const opt = {
+                margin: 0.5,
+                filename: 'IOSXE_Detailed_Device_Report.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#1a1d24' },
+                jsPDF: { unit: 'in', format: 'legal', orientation: 'landscape' }
+            };
+
+            // Ensure html2pdf restores button after print
+            html2pdf().set(opt).from(element).save().then(() => {
+                btn.style.display = 'inline-block';
+            });
+        }
+    </script>
+</body>
+
+</html>
