@@ -29,6 +29,9 @@ def run_prechecks():
     if not ip_list:
         return jsonify({'success': False, 'message': 'No IP addresses provided'}), 400
     
+    # Reload config to get latest credentials dynamically
+    config = get_config()
+    
     username = config['credentials']['ssh_username']
     password = config['credentials']['ssh_password']
     enable_password = config['credentials'].get('enable_password', '')
@@ -187,6 +190,9 @@ def rediscover_devices():
     
     if not ip_list:
         return jsonify({'success': False, 'message': 'No IP addresses provided'}), 400
+    
+    # Reload config to get latest credentials dynamically
+    config = get_config()
     
     username = config['credentials']['ssh_username']
     password = config['credentials']['ssh_password']
