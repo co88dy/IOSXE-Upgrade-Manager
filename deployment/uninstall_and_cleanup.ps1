@@ -20,6 +20,10 @@ Write-Host "Container stopped and removed."
 wsl -e bash -c "docker rmi co88dy/iosxe-upgrade-manager:latest > /dev/null 2>&1"
 Write-Host "Docker image removed."
 
+Write-Host "`n[4/4] Removing Docker Volumes..."
+wsl -e bash -c "docker volume rm ios-xe-db ios-xe-repo ios-xe-logs > /dev/null 2>&1"
+Write-Host "Volumes (database, repo, logs) removed."
+
 Write-Host "`n=== Cleanup Complete! ===" -ForegroundColor Green
-Write-Host "All firewall rules, port bridges, containers, and images have been removed."
-Write-Host "(Note: Docker volumes containing your database and repo files were preserved in WSL)."
+Write-Host "All firewall rules, port bridges, containers, images, and volumes have been wiped."
+
