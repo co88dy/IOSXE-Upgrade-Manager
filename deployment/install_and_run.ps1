@@ -30,8 +30,8 @@ Write-Host "Bridges Updated!"
 Write-Host "  -> Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
 Write-Host "`n[3/3] Pulling and running Docker image inside WSL..."
 Write-Host "Downloading latest image from Docker Hub (this may take a minute or two)..." -ForegroundColor Cyan
-# Execute docker commands inside WSL directly as root to stream output
-wsl -u root docker pull co88dy/iosxe-upgrade-manager:latest
+# Execute docker commands inside WSL directly as root to stream output. (Forcing AMD64 to prevent exec format errors)
+wsl -u root docker pull --platform linux/amd64 co88dy/iosxe-upgrade-manager:latest
 
 Write-Host "Cleaning up old containers..." -ForegroundColor Cyan
 wsl -u root bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
