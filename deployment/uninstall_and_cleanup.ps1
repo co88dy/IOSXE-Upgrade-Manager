@@ -14,14 +14,14 @@ netsh interface portproxy delete v4tov4 listenport=5000 listenaddress=0.0.0.0 | 
 Write-Host "Network bridges removed."
 
 Write-Host "`n[3/3] Stopping container and removing image inside WSL..."
-wsl -e bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
+wsl -e bash -c "sudo docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; sudo docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
 Write-Host "Container stopped and removed."
 
-wsl -e bash -c "docker rmi co88dy/iosxe-upgrade-manager:latest > /dev/null 2>&1"
+wsl -e bash -c "sudo docker rmi co88dy/iosxe-upgrade-manager:latest > /dev/null 2>&1"
 Write-Host "Docker image removed."
 
 Write-Host "`n[4/4] Removing Docker Volumes..."
-wsl -e bash -c "docker volume rm ios-xe-db ios-xe-repo ios-xe-logs > /dev/null 2>&1"
+wsl -e bash -c "sudo docker volume rm ios-xe-db ios-xe-repo ios-xe-logs > /dev/null 2>&1"
 Write-Host "Volumes (database, repo, logs) removed."
 
 Write-Host "`n=== Cleanup Complete! ===" -ForegroundColor Green
