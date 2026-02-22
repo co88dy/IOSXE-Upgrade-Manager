@@ -37,13 +37,13 @@ Open `http://<host-ip>:5000` in your browser.
 ---
 
 ## Option B — Build from Source
-Paste these commands into your standard Linux terminal (Jumpbox).
+If you are developing locally or need to rebuild the image, use `buildx` to ensure the image works on both ARM (Mac) and AMD64 (Jumpbox) machines.
 
 ```bash
-# 1. Build the updated image (Includes your latest code/config)
-docker build -t iosxe-upgrade-manager:latest -f deployment/Dockerfile .
+# 1. Build and push the multi-architecture image
+docker buildx build --platform linux/amd64,linux/arm64 -f deployment/Dockerfile -t co88dy/iosxe-upgrade-manager:latest --push .
 
-# 2. Cleanup old containers
+# 2. Cleanup old containers (on the host extending the app)
 docker stop IOSXE-Upgrade-Manager >/dev/null 2>&1
 docker rm IOSXE-Upgrade-Manager >/dev/null 2>&1
 
@@ -58,7 +58,7 @@ docker run -d \
   -v ios-xe-db:/app/app/database \
   -v ios-xe-repo:/app/app/repo \
   -v ios-xe-logs:/app/app/logs \
-  iosxe-upgrade-manager:latest
+  co88dy/iosxe-upgrade-manager:latest
 ```
 
 ## 2. Windows Firewall (PowerShell Admin)
