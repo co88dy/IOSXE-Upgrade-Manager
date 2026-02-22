@@ -28,18 +28,16 @@ netsh interface portproxy add v4tov4 listenport=5000 listenaddress=0.0.0.0 conne
 
 Write-Host "Bridges Updated!"
 Write-Host "  -> Host Port 80   -> $wsl_ip : 5000 (Repo Copy)"
-Write-Host "`n[3/3] Building and running Docker image inside WSL natively..."
-Write-Host "Compiling the AMD64 image locally on your Jumpbox to prevent Mac cross-compilation bugs..." -ForegroundColor Cyan
-
-# Build the image dynamically inside WSL from the Windows-mounted repository source
-# We use wslvar to read the Windows Current Directory natively from Linux to bypass PS string bugs
-wsl -u root bash -c 'cd "$(wslpath -u "$(wslvar CD)")" && docker build -t iosxe-upgrade-manager:local -f deployment/Dockerfile .'
+Write-Host "`n[3/3] Pulling and running Docker image inside WSL..."
+Write-Host "Downloading latest AMD64 image from Docker Hub (this may take a minute or two)..." -ForegroundColor Cyan
+# Execute docker commands inside WSL directly as root to stream output.
+wsl -u root docker pull co88dy/iosxe-upgrade-manager:latest-amd64
 
 Write-Host "Cleaning up old containers..." -ForegroundColor Cyan
 wsl -u root bash -c "docker stop IOSXE-Upgrade-Manager > /dev/null 2>&1 ; docker rm IOSXE-Upgrade-Manager > /dev/null 2>&1"
 
 Write-Host "Starting new container..." -ForegroundColor Cyan
-wsl -u root docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs iosxe-upgrade-manager:local
+wsl -u root docker run -d --name IOSXE-Upgrade-Manager --restart unless-stopped -p 5000:5000 -p 80:80 -v ios-xe-db:/app/app/database -v ios-xe-repo:/app/app/repo -v ios-xe-logs:/app/app/logs co88dy/iosxe-upgrade-manager:latest-amd64
 
 Write-Host "`n=== Deployment Complete! ===" -ForegroundColor Green
 Write-Host "Access the app at http://localhost:5000 (or the host machine IP)"
