@@ -1,13 +1,15 @@
-# Start from Python 3.11 slim image (Bookworm/OpenSSL 3)
-FROM python:3.11-slim
-
-# Enable legacy cryptography in OpenSSL 3 for older Cisco devices (ssh-rsa, diffie-hellman-group14-sha1)
-RUN sed -i 's/^DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=0/' /etc/ssl/openssl.cnf && \
-    sed -i 's/^\[provider_sect\]/[provider_sect]\nlegacy = legacy_sect/' /etc/ssl/openssl.cnf && \
-    sed -i 's/^\[default_sect\]/[default_sect]\nactivate = 1\n[legacy_sect]\nactivate = 1/' /etc/ssl/openssl.cnf
+# Start from Python 3.11 slim buster image (Debian 10/OpenSSL 1.1.1)
+# 1. Buster avoids Glibc 2.31+ which crashes heavily on WSL1 with "exec format error"
+# 2. OpenSSL 1.1.1 inherently supports legacy algorithms for Cisco SSH without hacking policy files.
+FROM python:3.11-slim-buster
 
 # Set working directory
 WORKDIR /app
+
+# Buster is EOL, so update sources.list to point to the Debian Archive and ignore expiration checks
+RUN echo "deb http://archive.debian.org/debian/ buster main" > /etc/apt/sources.list && \
+    echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list && \
+    echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
