@@ -18,7 +18,7 @@ docker run -d \
   --name IOSXE-Upgrade-Manager \
   --restart unless-stopped \
   -p 5000:5000 \
-  -p 80:5000 \
+  -p 80:80 \
   -v ios-xe-db:/app/app/database \
   -v ios-xe-repo:/app/app/repo \
   -v ios-xe-logs:/app/app/logs \
@@ -54,7 +54,7 @@ docker run -d \
   --name IOSXE-Upgrade-Manager \
   --restart unless-stopped \
   -p 5000:5000 \
-  -p 80:5000 \
+  -p 80:80 \
   -v ios-xe-db:/app/app/database \
   -v ios-xe-repo:/app/app/repo \
   -v ios-xe-logs:/app/app/logs \
