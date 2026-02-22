@@ -1,159 +1,188 @@
-# **Technical Specification: Model-Driven IOS-XE Upgrade Manager**
+# IOS-XE Upgrade Manager
 
-This document provides a detailed project plan for an automated Cisco IOS-XE software management web application. The tool is designed to manage the software lifecycle for IOS-XE devices (v17.0+) using a 1-step "one-shot" install process, integrated pre-checks, and a model-driven communication backend.
+A full-stack Flask web application for managing, pre-checking, and upgrading Cisco IOS-XE devices (switches and routers). Built to streamline the upgrade lifecycle the way Cisco DNA Center does, but self-hosted and lightweight.
 
-## **1\. Core Architectural Strategy**
+---
 
-### **Backend Framework**
+## Features
 
-* **Framework:** Flask with modular Blueprints (Discovery, Repository, Upgrade, Dashboard).  
-* **Concurrency:** APScheduler for task scheduling and threading for non-blocking device communication.  
-* **Database:** **SQLite**. Selected for its lightweight, zero-configuration persistence across app restarts.  
-* **Real-time Feedback:** **Server-Sent Events (SSE)**. SSE is the recommended choice over WebSockets for this application because upgrade logging is unidirectional (Server to Client). SSE offers built-in automatic reconnection, which is critical when tracking a device through a reload where management sessions may drop and resume.1
+### 📡 Device Discovery
+- Add device IPs manually or in bulk via the UI
+- Auto-discovers devices using NETCONF (ncclient) with SSH (Netmiko) fallback
+- Determines device role (switch vs. router) automatically from the part number
+- Stores all discovered data in a persistent SQLite database
 
-### **Communication Layer**
+### 📊 Device Inventory
+- Clean table view of all discovered devices with live status badges
+- Columns: IP, Hostname, Model, Version, ROMMON, Boot Variable, Filesystem, NETCONF state, Last Seen
+- Click any NETCONF badge to toggle NETCONF-YANG on/off — performs a **live SSH check** of the real device state before prompting for confirmation, and auto-syncs any drift between the DB and device
+- Select devices individually or in bulk via checkboxes for bulk operations
 
-1. **SSH (Netmiko/Paramiko):** Used exclusively for bootstrapping the environment (Enabling/Disabling Netconf) and for fallback "show romvar" checks if YANG coverage is thin on certain platforms.  
-2. **NETCONF (ncclient):** Primary driver for discovery and pre-checks. Leverages get operations on operational models to retrieve structured hardware and filesystem data.  
-3. **HTTP (Native):** App hosts a local repository on **Port 80**. Devices pull images using copy http://\<server\>/image flash: to maximize transfer speed over XML-based alternatives.
+### ✅ Pre-Check Engine
+- Runs a full suite of pre-upgrade validations per device via NETCONF or SSH
+- Checks include:
+  - Upgrade vs. downgrade detection
+  - Boot variable validation
+  - Disk space (Error < 1 GB, Warning < 2 GB) — checked per stack member on switches
+  - ROMMON variable validation (`SWITCH_IGNORE_STARTUP_CFG`)
+  - Running image vs. boot variable consistency
+  - Stack member health (for switch stacks)
+- Results displayed per-device with Pass / Warning / Fail status
+- Detailed pre-check report page per device
 
-## ---
+### 📦 Image Repository
+- Local HTTP file server (port 80) managed entirely through the UI
+- Upload `.bin` firmware images via drag-and-drop or file picker
+- Add MD5 checksums alongside images for post-copy verification
+- Repository page displays the configured HTTP download URL for use on devices
+- HTTP server IP is configured in Dashboard → Settings and detected automatically from host interfaces
 
-**2\. Database Schema (SQLite)**
+### 🔁 Image Copy & Verify
+- Initiates `copy http://...` from the device to pull the image from the local repo
+- Tracks copy progress in real time via SSE event stream
+- Post-copy MD5 verification against the stored checksum
 
-| Table | Fields |
-| :---- | :---- |
-| **Inventory** | ip\_address, hostname, serial\_number, device\_role (Switch/Router), current\_version, rommon\_version, status (Online/Offline), netconf\_state (Enabled/Disabled) |
-| **Repository** | filename, md5\_expected, file\_path, upload\_date |
-| **Jobs** | job\_id, target\_ip, target\_version, schedule\_time, status (Pending/Running/Success/Failed), log\_output |
-| **PreChecks** | ip\_address, check\_name, result (Pass/Fail/Warn), message |
+### ⬆️ Upgrade Scheduling
+- Schedule upgrades per device or in bulk
+- Uses `install add file flash:<image> activate commit prompt-level none` (switches) or `bootflash:` (routers)
+- Schedule picker uses the local machine timezone
+- Upgrades run as background jobs — real-time log output and status visible per device in the UI
 
-## ---
+### 🗂️ Jobs & History
+- All operations (discovery, pre-check, copy, verify, upgrade) run as tracked jobs
+- Real-time status polling with SSE events
+- Clear Jobs button to purge completed job history
 
-**3\. Workflow Logic: Role-Based Differentiation**
+### ⚙️ Settings
+- Device credentials (SSH username, password, enable password, NETCONF port)
+- Global timezone for scheduling
+- Repository HTTP Server IP — dropdown auto-populated from all detected host IPv4 addresses, with a manual entry option
 
-The application must automatically tag devices as **Switch** or **Router** during discovery to determine the correct filesystem and command syntax.
+---
 
-### **Device Identification**
+## Supported Devices
 
-* **Logic:** Query Cisco-IOS-XE-device-hardware-oper:device-hardware/device-inventory.3  
-* **Switches:** Tagged if PID contains "C9" (9000s) or "C3" (3850/3650).  
-  * Filesystem: flash:  
-  * Stack Check: Must iterate through q-filesystem to verify space on all members (e.g., flash-1:, flash-2:).4  
-* **Routers:** Tagged if PID contains "ASR", "ISR", or "C8" (8000 series).  
-  * Filesystem: bootflash:.5
+All Cisco IOS-XE 17.0+ platforms:
+- **Switches:** Catalyst 9200, 9300, 9400, 9500, 9600 series (stackable and standalone)
+- **Routers:** ASR 1000, ISR 4000, CSR 1000v, Catalyst 8000 series
 
-## ---
+Filesystem is automatically set to `flash:` for switches and `bootflash:` for routers.
 
-**4\. Pre-Check Engine Requirements**
+---
 
-Before the "Upgrade" button is enabled, the app must run and display the following validations:
+## Tech Stack
 
-1. **Version Comparison:** Check if target image version\!= current version.6  
-2. **Boot Variable Integrity:** Ensure boot system points to packages.conf for devices currently in Install Mode.  
-3. **Disk Space Thresholds:**  
-   * **Error:** \< 1 GB available on target filesystem (flash: or bootflash:).  
-   * **Warning:** \< 2 GB available.  
-   * *Note:* Switches must pass this check for **every member** in the stack using the Cisco-IOS-XE-platform-software-oper model.4  
-4. **ROMMON Flag Validation:**  
-   * **Error:** If SWITCH\_IGNORE\_STARTUP\_CFG=1 is detected in ROMMON variables.7 This flag causes devices to ignore their configuration upon reboot, leading to an unmanaged state.
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.11, Flask |
+| Device comms | ncclient (NETCONF), Netmiko (SSH/CLI) |
+| Database | SQLite (via built-in `sqlite3`) |
+| Scheduling | APScheduler |
+| Real-time updates | Server-Sent Events (SSE) |
+| Frontend | Vanilla HTML/CSS/JS (Inter font, dark theme) |
+| Containerization | Docker |
 
-## ---
+---
 
-**5\. Upgrade Orchestration (The "1-Step" Process)**
+## Quick Start
 
-The application implements the **One-Step Workflow** as described in Cisco documentation.8 This eliminates the need for manual Add/Activate/Commit triggers.
+### Option 1 — Docker (recommended)
 
-### **Command Execution**
+```bash
+docker pull co88dy/iosxe-upgrade-manager:latest
 
-The app will push the following sequence via RPC or SSH:
+docker run -d \
+  --name iosxe-upgrade-manager \
+  -p 5000:5000 \
+  -p 80:80 \
+  -v $(pwd)/data:/app/app/database \
+  -v $(pwd)/repo:/app/app/repo \
+  co88dy/iosxe-upgrade-manager:latest
+```
 
-Bash
+Open `http://localhost:5000` in your browser.
 
-install add file \<filesystem\>:\<filename\> activate commit prompt-level none
+> **Note:** Port 80 must be available on the host for devices to pull images via HTTP. Use the host machine IP (not `127.0.0.1`) in Dashboard → Settings → Repository HTTP Server IP.
 
-### **Scheduling Logic**
+### Option 2 — Local / venv
 
-* Users select a date/time in the UI.  
-* **APScheduler** triggers the background thread at the designated computer time.  
-* The job status updates to "Running," and the SSE log stream starts capturing the device output.
+```bash
+git clone https://github.com/co88dy/IOSXE-Upgrade-Manager.git
+cd IOSXE-Upgrade-Manager
 
-## ---
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-**6\. Implementation Checklist for AI Agents**
+python3 main.py
+```
 
-### **Functional Components**
+Open `http://localhost:5000`.
 
-* **Discovery Button:** Triggers a sweep of the IP list; populates SQLite with hardware/version data.  
-* **Netconf Toggle:** Multi-select devices in UI to push netconf-yang or no netconf-yang via Netmiko.  
-* **Clear Job/Clear All:** Resets the Jobs table or purges the entire Inventory/PreCheck DB.  
-* **HTTP Repo Manager:** Handles file uploads to a local folder and serves them via Flask's static path or a dedicated http.server on port 80\.
+---
 
-### **Directory Structure**
+## Configuration
 
-/ios-xe-manager
+All settings are stored in `config.json` at the project root. On first run the file is pre-populated with safe defaults. **Do not commit credentials** — add `config.json` to `.gitignore` if deploying publicly.
 
-├── app/
+Key fields:
 
-│ ├── blueprints/
+| Field | Description |
+|---|---|
+| `credentials.ssh_username` | SSH login for all devices |
+| `credentials.ssh_password` | SSH password |
+| `credentials.enable_password` | Enable/privileged exec password |
+| `credentials.netconf_port` | NETCONF port (default 830) |
+| `http_server_ip` | IP devices use to pull images via HTTP |
+| `scheduler.timezone` | Timezone for scheduled upgrades (e.g. `America/Denver`) |
+| `flask.debug` | Set `false` in production |
 
-│ │ ├── discovery.py \# Netconf discovery logic
+Settings can also be changed at runtime via Dashboard → Settings without editing the file manually.
 
-│ │ ├── repository.py \# File upload & MD5 verification
+---
 
-│ │ └── upgrade.py \# Installation orchestration & scheduling
+## Project Structure
 
-│ ├── static/ \# UI Assets
-
-│ ├── templates/ \# HTML Templates (SSE log window)
-
-│ ├── database/ \# network\_inventory.db
-
-│ └── repo/ \#.bin image storage
-
-├── deployment/
-
-│ ├── install\_wsl.sh \# Bash script for venv/requirements
-
-│ ├── flake.nix \# Nix environment config
-
-│ └── docker-compose.yml \# Docker definition
-
-├── config.json \# App-wide credentials
-
+```
+.
+├── main.py                        # Flask app entry point
+├── config.json                    # Runtime config (credentials, paths, etc.)
 ├── requirements.txt
+├── app/
+│   ├── blueprints/                # Flask route handlers (one file per feature)
+│   │   ├── discovery.py           # Device discovery + NETCONF toggle
+│   │   ├── bulk_ops.py            # Bulk pre-check and operations
+│   │   ├── copy_image.py          # Image copy to device
+│   │   ├── verify_image.py        # MD5 verification
+│   │   ├── upgrade.py             # Upgrade scheduling and execution
+│   │   ├── repository.py          # Local HTTP repo management
+│   │   ├── settings.py            # Credentials + HTTP IP config
+│   │   ├── jobs.py                # Job tracking and SSE events
+│   │   └── reports.py             # Pre-check report pages
+│   ├── database/
+│   │   └── models.py              # SQLite schema and model helpers
+│   ├── utils/
+│   │   ├── ssh_client.py          # Netmiko SSH wrapper
+│   │   ├── netconf_client.py      # ncclient NETCONF wrapper
+│   │   ├── precheck_engine.py     # Pre-upgrade validation engine
+│   │   └── event_bus.py           # SSE event broadcasting
+│   ├── static/
+│   │   ├── css/style.css          # Dark theme stylesheet
+│   │   └── js/
+│   │       ├── app.js             # Main dashboard JS
+│   │       └── repository.js      # Repository page JS
+│   ├── templates/
+│   │   ├── index.html             # Main dashboard
+│   │   ├── repository.html        # Image repository page
+│   │   └── reports_prechecks.html # Pre-check results
+│   └── repo/                      # Uploaded firmware images (served on port 80)
+└── deployment/
+    ├── Dockerfile
+    └── docker_deploy.md           # Docker deployment notes
+```
 
-└── main.py \# App entry point
+---
 
-## ---
+## License
 
-**7\. Deployment Assets**
-
-### **WSL Install Script (install\_wsl.sh)**
-
-Bash
-
-\#\!/bin/bash  
-python3 \-m venv venv  
-source venv/bin/activate  
-pip install \--upgrade pip  
-pip install flask flask-apscheduler ncclient netmiko xmltodict sqlite3  
-export FLASK\_APP=main.py  
-echo "Installation complete. Run 'flask run' to start."
-
-### **Nix/Docker Integration**
-
-* Use pkgs.dockerTools.buildLayeredImage to package the Python environment and Flask app into a minimal OCI-compliant container.9  
-* Provide a nix config file to ensure the Python interpreter version is pinned (3.11+ recommended for ncclient stability).
-
-#### **Works cited**
-
-1. Streaming HTTP vs. WebSocket vs. SSE: A Comparison for Real-Time Data, accessed February 11, 2026, [https://dev.to/mechcloud\_academy/streaming-http-vs-websocket-vs-sse-a-comparison-for-real-time-data-1geo](https://dev.to/mechcloud_academy/streaming-http-vs-websocket-vs-sse-a-comparison-for-real-time-data-1geo)  
-2. Implementing Server-Sent Events (SSE)Using Python Flask & React \- Ajackus, accessed February 11, 2026, [https://www.ajackus.com/blog/implement-sse-using-python-flask-and-react/](https://www.ajackus.com/blog/implement-sse-using-python-flask-and-react/)  
-3. Cisco-IOS-XE-device-hardware-oper.yang \- GitHub, accessed February 11, 2026, [https://github.com/YangModels/yang/blob/main/vendor/cisco/xe/1681/Cisco-IOS-XE-device-hardware-oper.yang](https://github.com/YangModels/yang/blob/main/vendor/cisco/xe/1681/Cisco-IOS-XE-device-hardware-oper.yang)  
-4. YANG Tree Cisco-IOS-XE-platform-software-oper@2022-07-01, accessed February 11, 2026, [https://www.yangcatalog.org/api/services/tree/Cisco-IOS-XE-platform-software-oper@2022-07-01.yang](https://www.yangcatalog.org/api/services/tree/Cisco-IOS-XE-platform-software-oper@2022-07-01.yang)  
-5. Cisco IOS XE Upgrade 17.x | PDF \- Scribd, accessed February 11, 2026, [https://www.scribd.com/document/827144590/Cisco-IOS-XE-Upgrade-17-x](https://www.scribd.com/document/827144590/Cisco-IOS-XE-Upgrade-17-x)  
-6. Current State of the Art for Declarative Cisco IOS-XE Upgrades? : r/networking \- Reddit, accessed February 11, 2026, [https://www.reddit.com/r/networking/comments/1m3854n/current\_state\_of\_the\_art\_for\_declarative\_cisco/](https://www.reddit.com/r/networking/comments/1m3854n/current_state_of_the_art_for_declarative_cisco/)  
-7. cisco 3850 set to ignore startup config unable to remove SOLVED, accessed February 11, 2026, [https://community.cisco.com/t5/switching/cisco-3850-set-to-ignore-startup-config-unable-to-remove-solved/td-p/3943001](https://community.cisco.com/t5/switching/cisco-3850-set-to-ignore-startup-config-unable-to-remove-solved/td-p/3943001)  
-8. Cisco IOS 26 \- IOS XE upgrade \- standalone switch, stack and ISSU \- SAMURAJ-cz.com, accessed February 11, 2026, [https://www.samuraj-cz.com/en/article/cisco-ios-26-ios-xe-upgrade-standalone-switch-stack-and-issu/](https://www.samuraj-cz.com/en/article/cisco-ios-26-ios-xe-upgrade-standalone-switch-stack-and-issu/)  
-9. pkgs.dockerTools | nixpkgs, accessed February 11, 2026, [https://ryantm.github.io/nixpkgs/builders/images/dockertools/](https://ryantm.github.io/nixpkgs/builders/images/dockertools/)
+MIT
