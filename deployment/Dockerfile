@@ -1,7 +1,10 @@
-# Start from Python 3.11 Bullseye slim image
-# Note: We use bullseye instead of bookworm to use OpenSSL 1.1.1,
-# as OpenSSL 3 (in bookworm) strictly blocks the SHA1 legacy crypto used by many Cisco devices via SSH.
-FROM --platform=$TARGETPLATFORM python:3.11-slim-bullseye
+# Start from Python 3.11 slim image (Bookworm/OpenSSL 3)
+FROM python:3.11-slim
+
+# Enable legacy cryptography in OpenSSL 3 for older Cisco devices (ssh-rsa, diffie-hellman-group14-sha1)
+RUN sed -i 's/^DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=0/' /etc/ssl/openssl.cnf && \
+    sed -i 's/^\[provider_sect\]/[provider_sect]\nlegacy = legacy_sect/' /etc/ssl/openssl.cnf && \
+    sed -i 's/^\[default_sect\]/[default_sect]\nactivate = 1\n[legacy_sect]\nactivate = 1/' /etc/ssl/openssl.cnf
 
 # Set working directory
 WORKDIR /app
