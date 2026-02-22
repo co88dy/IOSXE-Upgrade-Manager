@@ -1,7 +1,7 @@
 # Start from Python 3.11 Bullseye slim image
 # Note: We use bullseye instead of bookworm to use OpenSSL 1.1.1,
 # as OpenSSL 3 (in bookworm) strictly blocks the SHA1 legacy crypto used by many Cisco devices via SSH.
-FROM python:3.11-slim-bullseye
+FROM --platform=$TARGETPLATFORM python:3.11-slim-bullseye
 
 # Set working directory
 WORKDIR /app
